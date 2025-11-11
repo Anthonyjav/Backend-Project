@@ -2,10 +2,10 @@ require('dotenv').config();
 
 module.exports = {
   development: {
-    username: 'sg_studio_backend_4dwq_user',
-    password: 'PFYGNG44UflSRLxFoethwOx0a9mlPndI',
-    database: 'sg_studio_backend_4dwq',
-    host: 'dpg-d3a1heili9vc7399ph6g-a.oregon-postgres.render.com',
+    username: 'proyecto_back_ab6l_user',
+    password: 't4cZJaubZN11fbmaj2ycrqyEJyl8aA3L',
+    database: 'proyecto_back_ab6l',
+    host: 'dpg-d49c4eali9vc739p30e0-a.oregon-postgres.render.com',
     dialect: 'postgres',
     port: 5432,
     dialectOptions: {
