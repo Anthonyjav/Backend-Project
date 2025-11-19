@@ -3,7 +3,6 @@ const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
   class Usuario extends Model {
     static associate(models) {
-      // Aquí puedes definir asociaciones si un usuario se relaciona con otras tablas.
     }
   }
   Usuario.init({

@@ -47,7 +47,7 @@ app.use('/usuarios', require('./routes/usuarios'));
 app.use('/productos', require('./routes/producto'));
 app.use('/categorias', require('./routes/categoria'));
 app.use('/carrito', require('./routes/carrito'));
-app.use('/carritoitem', require('./routes/carritoitem')); // corregido typo
+app.use('/carritoitem', require('./routes/carritoitem')); 
 app.use('/ordenes', require('./routes/orden'));
 app.use('/orden-items', require('./routes/ordenItem'));
 app.use('/reclamos', require('./routes/reclamo'));
