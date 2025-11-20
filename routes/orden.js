@@ -76,21 +76,21 @@ router.post('/', async (req, res) => {
       orderId,
       currency,
       note,
+      orderIdIzipay,
+      transactionId,
+      paymentStatus,
+      paymentResponse,
+      paymentDate,
       items
     } = req.body;
 
     console.log("📦 BODY RECIBIDO:", req.body);
 
-    // VERIFICACIÓN DE CAMPOS OBLIGATORIOS
-    if (!orderId) {
-      return res.status(400).json({ error: "orderId es obligatorio" });
-    }
+    // Validaciones básicas
+    if (!orderId) return res.status(400).json({ error: "orderId es obligatorio" });
+    if (!subtotal || !total) return res.status(400).json({ error: "Subtotal y total son obligatorios" });
 
-    if (!subtotal || !total) {
-      return res.status(400).json({ error: "Subtotal y total son obligatorios" });
-    }
-
-    // 1. Crear orden
+    // 1️⃣ Crear la orden
     const nuevaOrden = await Orden.create({
       usuarioId,
       nombre,
@@ -110,33 +110,44 @@ router.post('/', async (req, res) => {
       cuponCodigo,
       orderId,
       currency,
-      note
+      note,
+      orderIdIzipay,
+      transactionId,
+      paymentStatus,
+      paymentResponse,
+      paymentDate
     });
 
-    // 2. Crear items
+    // 2️⃣ Crear los OrdenItems
     if (items && items.length > 0) {
       for (const item of items) {
         await OrdenItem.create({
           ordenId: nuevaOrden.id,
-          productoId: item.productoId, 
-          nombreProducto: item.nombre,
+          productoId: item.productoId,
+          nombreProducto: item.nombreProducto || item.nombre,
           cantidad: item.cantidad,
           precio: item.precio,
-          talla: item.talla
+          talla: item.talla || null
         });
       }
     }
 
-    res.json({
-      message: "Orden creada correctamente",
-      orden: nuevaOrden
+    // 3️⃣ Devolver la orden completa con items
+    const ordenCompleta = await Orden.findByPk(nuevaOrden.id, {
+      include: [
+        { model: OrdenItem, as: 'items' },
+        { model: Usuario, as: 'usuario', attributes: ['id', 'nombre', 'apellido', 'email'] }
+      ]
     });
+
+    res.status(201).json({ message: "Orden creada correctamente", orden: ordenCompleta });
 
   } catch (error) {
     console.error("🔥 ERROR AL CREAR ORDEN:", error);
     res.status(500).json({ error: error.message });
   }
 });
+
 
   
 
