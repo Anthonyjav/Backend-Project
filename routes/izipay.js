@@ -2,7 +2,7 @@
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-
+const { Orden } = require('../models');
 const router = express.Router();
 
 /* ============================
@@ -79,7 +79,6 @@ router.post('/form-token', async (req, res) => {
   }
 });
 
-
 /* ============================
    2️⃣ WEBHOOK (IPN)
    ============================ */
@@ -102,8 +101,35 @@ router.post("/webhook", async (req, res) => {
     const data = JSON.parse(krAnswerRaw);
     console.log("✅ WEBHOOK — Pago confirmado:", data);
 
-    // 👉 Aquí guardas el pago en tu BD
-    // await Orden.create({ ...data });
+    // Guardar en DB
+    const orderDetails = data.orderDetails || {};
+    const customer = data.customer?.billingDetails || {};
+    const transaction = data.transactions?.[0] || {};
+
+    await Orden.create({
+      usuarioId: null, // Opcional: vincular con usuario logueado
+      nombre: customer.firstName,
+      apellido: customer.lastName,
+      email: data.customer?.email,
+      telefono: customer.phoneNumber,
+      pais: customer.country || 'Perú',
+      departamento: customer.state,
+      provincia: customer.city,
+      distrito: '', // si tienes distrito
+      direccion: customer.address,
+      referencia: data.reference || '',
+      metodoEnvio: '', // si aplica
+      estado: data.orderStatus.toLowerCase(), // APPROVED, DECLINED, PENDING
+      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+      envio: 0, // si aplica
+      total: (orderDetails.orderPaidAmount || 0) / 100,
+      cuponCodigo: '', // si aplica
+      orderIdIzipay: orderDetails.orderId,
+      transactionId: transaction.uuid,
+      paymentStatus: data.orderStatus,
+      paymentResponse: data,
+      paymentDate: transaction.creationDate ? new Date(transaction.creationDate) : new Date(),
+    });
 
     res.send("OK");
 
@@ -113,7 +139,6 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
-
 /* ============================
    3️⃣ RETURN URL — Resultado final
    ============================ */
@@ -122,12 +147,26 @@ router.post("/resultado", async (req, res) => {
     const krAnswerRaw = req.body["kr-answer"] || "{}";
     const answer = JSON.parse(krAnswerRaw);
 
+    const orderDetails = answer.orderDetails || {};
+    const customer = answer.customer?.billingDetails || {};
+    const transaction = answer.transactions?.[0] || {};
+
     res.json({
       status: answer.orderStatus,
-      orderId: answer.orderDetails?.orderId,
-      currency: answer.orderDetails?.orderCurrency,
-      amount: answer.orderDetails?.orderTotalAmount,
-      raw: answer
+      orderId: orderDetails.orderId,
+      currency: orderDetails.orderCurrency,
+      amount: orderDetails.orderTotalAmount,
+      customer: {
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: answer.customer?.email,
+        phone: customer.phoneNumber,
+        address: customer.address,
+        state: customer.state,
+        city: customer.city,
+      },
+      transactionId: transaction.uuid,
+      raw: answer,
     });
 
   } catch (error) {
@@ -135,6 +174,5 @@ router.post("/resultado", async (req, res) => {
     res.status(500).json({ error: "Error procesando resultado" });
   }
 });
-
 
 module.exports = router;
