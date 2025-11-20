@@ -1,6 +1,6 @@
-// backend/routes/izipay.ts
-import express from 'express';
-import axios from 'axios';
+// backend/routes/izipay.js
+const express = require('express');
+const axios = require('axios');
 
 const router = express.Router();
 
@@ -23,7 +23,7 @@ router.post('/form-token', async (req, res) => {
   } = req.body;
 
   try {
-    // Credenciales de prueba que me diste
+    // Credenciales de prueba
     const USERNAME = '84426447';
     const PASSWORD = 'testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn';
 
@@ -72,4 +72,4 @@ router.post('/form-token', async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;
