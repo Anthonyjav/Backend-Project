@@ -27,7 +27,10 @@ module.exports = (sequelize, DataTypes) => {
     apellido: DataTypes.STRING,
     email: DataTypes.STRING,
     telefono: DataTypes.STRING,
-    pais: DataTypes.STRING,
+    pais: {
+      type: DataTypes.STRING,
+      defaultValue: 'Perú'
+    },
     departamento: DataTypes.STRING,
     provincia: DataTypes.STRING,
     distrito: DataTypes.STRING,
@@ -36,12 +39,19 @@ module.exports = (sequelize, DataTypes) => {
     metodoEnvio: DataTypes.STRING,
     estado: {
       type: DataTypes.STRING,
-      defaultValue: 'completado'
+      defaultValue: 'pendiente' // ahora por defecto pendiente hasta confirmar el pago
     },
     subtotal: DataTypes.FLOAT,
     envio: DataTypes.FLOAT,
     total: DataTypes.FLOAT,
-    cuponCodigo: DataTypes.STRING
+    cuponCodigo: DataTypes.STRING,
+
+    // Campos específicos para Izipay
+    orderIdIzipay: DataTypes.STRING,      // ID que devuelve Izipay
+    transactionId: DataTypes.STRING,      // ID de la transacción en Izipay
+    paymentStatus: DataTypes.STRING,      // Estado del pago (APPROVED, DECLINED, PENDING)
+    paymentResponse: DataTypes.JSON,      // Guardar el payload completo de Izipay
+    paymentDate: DataTypes.DATE           // Fecha en que se confirma el pago
   }, {
     sequelize,
     modelName: 'Orden',
