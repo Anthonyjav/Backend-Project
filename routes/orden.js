@@ -2,21 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
 
-router.post('/', async (req, res) => {
-  try {
-    console.log("BODY recibido:", req.body); // 👈 LOG IMPORTANTE
 
-    const orden = await Orden.create(req.body, {
-      include: [{ model: OrdenItem, as: 'items' }]
-    });
-
-    res.json(orden);
-
-  } catch (error) {
-    console.error("🔥 ERROR AL CREAR ORDEN:", error); // 👈 MOSTRAR ERROR REAL
-    res.status(500).json({ error: error.message }); // 👈 DEVOLVER ERROR REAL
-  }
-});
 
 
 router.get('/:id', async (req, res) => {
@@ -76,10 +62,21 @@ router.post('/', async (req, res) => {
       orderId,
       currency,
       note,
-      items // <-- VIENE DEL CARRITO
+      items
     } = req.body;
 
-    // 1. Crear la orden
+    console.log("📦 BODY RECIBIDO:", req.body);
+
+    // VERIFICACIÓN DE CAMPOS OBLIGATORIOS
+    if (!orderId) {
+      return res.status(400).json({ error: "orderId es obligatorio" });
+    }
+
+    if (!subtotal || !total) {
+      return res.status(400).json({ error: "Subtotal y total son obligatorios" });
+    }
+
+    // 1. Crear orden
     const nuevaOrden = await Orden.create({
       usuarioId,
       nombre,
@@ -102,7 +99,7 @@ router.post('/', async (req, res) => {
       note
     });
 
-    // 2. Crear items de la orden
+    // 2. Crear items
     if (items && items.length > 0) {
       for (const item of items) {
         await OrdenItem.create({
@@ -116,10 +113,14 @@ router.post('/', async (req, res) => {
       }
     }
 
-    res.json({ message: 'Orden creada correctamente', orden: nuevaOrden });
+    res.json({
+      message: "Orden creada correctamente",
+      orden: nuevaOrden
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al crear la orden', details: error });
+    console.error("🔥 ERROR AL CREAR ORDEN:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
