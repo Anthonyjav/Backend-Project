@@ -107,7 +107,7 @@ router.post('/', async (req, res) => {
           productoId: item.id,
           nombreProducto: item.nombre,
           cantidad: item.cantidad,
-          precioUnitario: item.precio,
+          precio: item.precio,
           talla: item.talla
         });
       }
