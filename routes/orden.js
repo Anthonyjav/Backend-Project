@@ -10,10 +10,11 @@ router.get('/', async (req, res) => {
     });
 
     res.json(ordenes);
-  } catch (error) {
-    console.error('Error al obtener órdenes:', error);
-    res.status(500).json({ error: 'Error al obtener órdenes' });
+    } catch (error) {
+      console.error('Error al obtener órdenes DETALLE:', error);
+      res.status(500).json({ error: error.message });
   }
+
 });
 
 // Obtener una orden específica
