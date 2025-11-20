@@ -200,25 +200,63 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    console.log(" DATA RECIBIDA DESDE FRONT:");
-    console.log(req.body);
+    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", req.body);
 
-    const data = req.body.data;
+    const data = req.body.data; // Izipay envía los datos dentro de 'data'
 
     if (!data) {
-      return res.status(400).json({ error: "No llegó 'data' desde el frontend" });
+      return res.status(400).json({ error: "No llegó 'data' desde Izipay" });
     }
 
-    return res.json({
-      success: true,
-      message: "Pago recibido correctamente",
-      recibido: data
+    const customer = data.customer?.billingDetails || {};
+    const orderDetails = data.orderDetails || {};
+    const transaction = data.transactions?.[0] || {};
+
+    // Crear la orden en tu base de datos
+    const nuevaOrden = await Orden.create({
+      usuarioId: null, // si tienes usuario logueado, pon su ID
+      nombre: customer.firstName,
+      apellido: customer.lastName,
+      email: data.customer?.email,
+      telefono: customer.phoneNumber,
+      pais: customer.country || "PE",
+      departamento: customer.state,
+      provincia: customer.city,
+      distrito: "",
+      direccion: customer.address,
+      referencia: "",
+      metodoEnvio: "",
+      estado: data.orderStatus.toLowerCase(), // aprobado, rechazado, etc.
+      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+      envio: 0,
+      total: (orderDetails.orderPaidAmount || 0) / 100,
+      orderIdIzipay: orderDetails.orderId,
+      transactionId: transaction.uuid,
+      paymentStatus: data.orderStatus,
+      paymentResponse: JSON.stringify(data),
+      paymentDate: transaction.createdAt || new Date()
     });
+
+    // Guardar los items del carrito si los envías
+    const productos = data.cartItems || [];
+    for (const item of productos) {
+      await OrdenItem.create({
+        ordenId: nuevaOrden.id,
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+        precio: item.precio
+      });
+    }
+
+    console.log("✅ Orden creada:", nuevaOrden.id);
+
+    res.json({ success: true, message: "Orden creada", ordenId: nuevaOrden.id });
 
   } catch (error) {
     console.error("❌ Error en /pago-exitoso:", error);
     res.status(500).json({ error: "Error interno" });
   }
 });
+
 
 module.exports = router;
