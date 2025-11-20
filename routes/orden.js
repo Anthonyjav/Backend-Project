@@ -29,7 +29,7 @@ router.get('/:id', async (req, res) => {
             {
               model: Producto,
               as: 'producto',
-              attributes: ['id', 'nombre'] // aquí está el cambio clave
+              attributes: ['id', 'nombre']
             }
           ]
         },

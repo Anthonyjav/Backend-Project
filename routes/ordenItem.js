@@ -12,8 +12,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Obtener todos los items
-// Obtener todos los items o filtrar por ordenId
+
 router.get('/', async (req, res) => {
   try {
     const { ordenId } = req.query;

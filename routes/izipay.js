@@ -84,60 +84,77 @@ router.post('/form-token', async (req, res) => {
    ============================ */
 router.post("/webhook", async (req, res) => {
   try {
+
     const krAnswerRaw = req.body["kr-answer"];
     const receivedHash = req.body["kr-hash"];
 
-    // Validar firma
+    // Validar firma HMAC
     const calculatedHash = crypto
       .createHmac("sha256", HMAC_TEST)
       .update(krAnswerRaw, "utf8")
       .digest("hex");
 
     if (calculatedHash !== receivedHash) {
-      console.log("❌ HASH NO VÁLIDO — Posible fraude");
+      console.log("❌ HASH NO VÁLIDO");
       return res.status(400).send("Invalid signature");
     }
 
     const data = JSON.parse(krAnswerRaw);
-    console.log("✅ WEBHOOK — Pago confirmado:", data);
+    console.log("🔔 WEBHOOK RECIBIDO:", data);
 
-    // Guardar en DB
-    const orderDetails = data.orderDetails || {};
+    // ========================================
+    // 1️⃣ CREAR ORDEN EN TU TABLA Orden
+    // ========================================
     const customer = data.customer?.billingDetails || {};
+    const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
-    await Orden.create({
-      usuarioId: null, // Opcional: vincular con usuario logueado
+    const nuevaOrden = await Orden.create({
+      usuarioId: data.usuarioId || null, // si tu front lo envía
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
       telefono: customer.phoneNumber,
-      pais: customer.country || 'Perú',
+      pais: customer.country || "Perú",
       departamento: customer.state,
       provincia: customer.city,
-      distrito: '', // si tienes distrito
+      distrito: "",
       direccion: customer.address,
-      referencia: data.reference || '',
-      metodoEnvio: '', // si aplica
-      estado: data.orderStatus.toLowerCase(), // APPROVED, DECLINED, PENDING
+      referencia: "",
+      metodoEnvio: "",
+      estado: data.orderStatus?.toLowerCase(),
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
-      envio: 0, // si aplica
+      envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
-      cuponCodigo: '', // si aplica
-      orderIdIzipay: orderDetails.orderId,
-      transactionId: transaction.uuid,
-      paymentStatus: data.orderStatus,
-      paymentResponse: data,
-      paymentDate: transaction.creationDate ? new Date(transaction.creationDate) : new Date(),
+      cuponCodigo: ""
     });
 
-    res.send("OK");
+    console.log("✅ ORDEN GUARDADA:", nuevaOrden.id);
+
+    // ========================================
+    // 2️⃣ GUARDAR ITEMS DE LA ORDEN
+    // ========================================
+    const productos = data.cartItems || []; // <-- tu front debe enviar esto
+
+    for (const item of productos) {
+      await OrdenItem.create({
+        ordenId: nuevaOrden.id,
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+        precio: item.precio
+      });
+    }
+
+    console.log("🛒 ITEMS GUARDADOS:", productos.length);
+
+    return res.send("OK");
 
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Webhook error");
+    console.error("❌ WEBHOOK ERROR:", error);
+    return res.status(500).send("Webhook error");
   }
 });
+
 
 /* ============================
    3️⃣ RETURN URL — Resultado final

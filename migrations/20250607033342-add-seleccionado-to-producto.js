@@ -1,15 +1,21 @@
 'use strict';
 
 module.exports = {
-  up: async (queryInterface, Sequelize) => {
-    return queryInterface.addColumn('Productos', 'seleccionado', {
-      type: Sequelize.BOOLEAN,
-      defaultValue: false,
-      allowNull: false
-    });
+  async up(queryInterface, Sequelize) {
+    const table = 'Productos';
+
+    // Solo agrega la columna si NO existe
+    const tableInfo = await queryInterface.describeTable(table);
+
+    if (!tableInfo['seleccionado']) {
+      await queryInterface.addColumn(table, 'seleccionado', {
+        type: Sequelize.BOOLEAN,
+        defaultValue: false
+      });
+    }
   },
 
-  down: async (queryInterface, Sequelize) => {
-    return queryInterface.removeColumn('Productos', 'seleccionado');
+  async down(queryInterface, Sequelize) {
+    // Evitar eliminar columnas en rollback
   }
 };

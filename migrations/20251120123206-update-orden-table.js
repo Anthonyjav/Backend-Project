@@ -4,7 +4,7 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     const table = 'Productos';
 
-    // Solo agrega columnas si NO existen
+    // Función reutilizable que solo agrega una columna si NO existe
     const addColumnIfNotExists = async (columnName, columnOptions) => {
       const tableInfo = await queryInterface.describeTable(table);
       if (!tableInfo[columnName]) {
@@ -18,13 +18,13 @@ module.exports = {
     await addColumnIfNotExists('composicion', { type: Sequelize.TEXT });
     await addColumnIfNotExists('info', { type: Sequelize.TEXT });
     await addColumnIfNotExists('cuidados', { type: Sequelize.TEXT });
-    await addColumnIfNotExists('seleccionado', {
-      type: Sequelize.BOOLEAN,
-      defaultValue: false
+    await addColumnIfNotExists('seleccionado', { 
+      type: Sequelize.BOOLEAN, 
+      defaultValue: false 
     });
   },
 
   async down(queryInterface, Sequelize) {
-    // Dejar vacío para evitar rollback que borre columnas
+    // Puedes dejar esto vacío para no romper nada
   }
 };
