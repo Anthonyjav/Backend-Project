@@ -4,6 +4,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { Orden } = require('../models');
 const router = express.Router();
+module.exports = router;
 
 /* ============================
    🔐 CREDENCIALES TEST
@@ -189,6 +190,32 @@ router.post("/resultado", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error procesando resultado" });
+  }
+});
+/* ============================
+   4️⃣ PAGO EXITOSO (desde frontend)
+   ============================ */
+router.post("/pago-exitoso", async (req, res) => {
+  try {
+    console.log("📥 DATA RECIBIDA DESDE FRONT:");
+    console.log(req.body);
+
+    const data = req.body.data;
+
+    if (!data) {
+      return res.status(400).json({ error: "No llegó 'data' desde el frontend" });
+    }
+
+    // Puedes guardar en tabla, enviar WhatsApp o solo responder
+    return res.json({
+      success: true,
+      message: "Pago recibido correctamente",
+      recibido: data
+    });
+
+  } catch (error) {
+    console.error("❌ Error en /pago-exitoso:", error);
+    res.status(500).json({ error: "Error interno" });
   }
 });
 
