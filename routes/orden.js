@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
-const { generarFormToken } = require('../services/izipay'); 
 
 // Obtener todas las órdenes
 router.get('/', async (req, res) => {
@@ -66,7 +65,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'La orden debe contener al menos un producto' });
     }
 
-    // 1️⃣ Crear la orden en la base de datos
+    // Crear orden principal
     const orden = await Orden.create({
       usuarioId,
       nombre,
@@ -84,49 +83,46 @@ router.post('/', async (req, res) => {
       envio,
       total,
       cuponCodigo,
-      estado: 'pendiente' // ✅ todavía no está pagado
+      estado: 'completado'
     });
 
-    // 2️⃣ Crear los items relacionados
+    // Crear los items relacionados
     const itemsConOrdenId = items.map(item => ({
-      ordenId: orden.id,
-      productoId: item.productoId,
-      cantidad: item.cantidad,
-      precio: item.precio
+    ordenId: orden.id,
+    productoId: item.productoId,
+    cantidad: item.cantidad,
+    precio: item.precio // Asegúrate que este campo existe y representa el precio unitario o total
     }));
+
 
     await OrdenItem.bulkCreate(itemsConOrdenId);
 
-    // 3️⃣ Generar formToken de Izipay
-    const formToken = await generarFormToken({
-      amount: total,
-      currency: 'PEN',
-      orderId: `SGSTUDIO-${orden.id}`,
-      email,
-      firstName: nombre,
-      lastName: apellido,
-      phoneNumber: telefono,
-      identityType: 'DNI', // puedes recibirlo del frontend
-      identityCode: '12345678', // también del frontend
-      address: direccion,
-      country: pais || 'PE',
-      city: distrito,
-      state: departamento,
-      zipCode: '15001' // opcional
+    // Traer la orden completa con relaciones
+    const ordenConTodo = await Orden.findByPk(orden.id, {
+      include: [
+        {
+          model: OrdenItem,
+          as: 'items'
+        },
+        {
+          model: Usuario,
+          as: 'usuario',
+          attributes: ['id', 'nombre', 'apellido', 'email']
+        }
+      ]
     });
 
-    // 4️⃣ Retornar la orden y el formToken al frontend
     res.status(201).json({
       mensaje: 'Orden creada correctamente',
-      ordenId: orden.id,
-      formToken
+      orden: ordenConTodo
     });
 
   } catch (error) {
-    console.error('Error al crear orden con Izipay:', error);
-    res.status(500).json({ error: 'Error al crear la orden' });
+    console.error(' Error al crear orden:', error);
+    res.status(500).json({ error: 'Error al crear orden' });
   }
 });
+
 
   
 
