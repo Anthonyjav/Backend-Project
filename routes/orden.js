@@ -54,7 +54,7 @@ router.get('/:id', async (req, res) => {
 
 // Crear una nueva orden
 // Crear una nueva orden
-router.post('/', async (req, res) => {
+/*router.post('/', async (req, res) => {
   try {
     const {
       usuarioId,
@@ -147,7 +147,7 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
+*/
 
   
 

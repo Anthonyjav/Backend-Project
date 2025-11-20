@@ -109,8 +109,9 @@ router.post("/webhook", async (req, res) => {
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
+
     const nuevaOrden = await Orden.create({
-      usuarioId: data.usuarioId || null, // si tu front lo envía
+      usuarioId: data.usuarioId || null,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -122,12 +123,19 @@ router.post("/webhook", async (req, res) => {
       direccion: customer.address,
       referencia: "",
       metodoEnvio: "",
-      estado: data.orderStatus?.toLowerCase(),
+      estado: data.orderStatus.toLowerCase(),
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
       envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
-      cuponCodigo: ""
+      
+      // ✅ Campos de Izipay
+      orderIdIzipay: orderDetails.orderId,
+      transactionId: transaction.uuid,
+      paymentStatus: data.orderStatus,
+      paymentResponse: JSON.stringify(data), // guarda todo el payload si quieres
+      paymentDate: transaction.createdAt || new Date()
     });
+
 
     console.log("✅ ORDEN GUARDADA:", nuevaOrden.id);
 
