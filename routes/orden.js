@@ -6,11 +6,11 @@ router.get('/', async (req, res) => {
   try {
     const ordenes = await Orden.findAll({
       include: [
-        { model: Usuario, as: 'usuario', attributes: ['id', 'nombre', 'apellido', 'email'] },
         { model: OrdenItem, as: 'items' }
       ],
       order: [['createdAt', 'DESC']]
     });
+
     res.json(ordenes);
   } catch (error) {
     console.error(error);
