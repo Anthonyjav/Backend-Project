@@ -119,7 +119,7 @@ router.post('/', async (req, res) => {
       for (const item of items) {
         await OrdenItem.create({
           ordenId: nuevaOrden.id,
-          productoId: item.id,
+          productoId: item.productoId, 
           nombreProducto: item.nombre,
           cantidad: item.cantidad,
           precio: item.precio,
