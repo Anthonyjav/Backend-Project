@@ -1,8 +1,20 @@
 // backend/routes/izipay.js
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
+
 const router = express.Router();
 
+/* ============================
+   🔐 CREDENCIALES TEST
+   ============================ */
+const USER = "84426447";
+const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
+const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
+
+/* ============================
+   1️⃣ GENERAR FORM TOKEN
+   ============================ */
 router.post('/form-token', async (req, res) => {
   const {
     amount,
@@ -22,15 +34,10 @@ router.post('/form-token', async (req, res) => {
   } = req.body;
 
   try {
-    // CREDENCIALES CORRECTAS PARA API REST (TEST)
-    const USERNAME = "84426447";
-    const PASSWORD = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
-
-    // Header de autenticación Basic
-    const auth = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
+    const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
 
     const body = {
-      amount: amount * 100,
+      amount: amount * 100, // Izipay usa centavos
       currency,
       orderId,
       customer: {
@@ -71,5 +78,63 @@ router.post('/form-token', async (req, res) => {
     });
   }
 });
+
+
+/* ============================
+   2️⃣ WEBHOOK (IPN)
+   ============================ */
+router.post("/webhook", async (req, res) => {
+  try {
+    const krAnswerRaw = req.body["kr-answer"];
+    const receivedHash = req.body["kr-hash"];
+
+    // Validar firma
+    const calculatedHash = crypto
+      .createHmac("sha256", HMAC_TEST)
+      .update(krAnswerRaw, "utf8")
+      .digest("hex");
+
+    if (calculatedHash !== receivedHash) {
+      console.log("❌ HASH NO VÁLIDO — Posible fraude");
+      return res.status(400).send("Invalid signature");
+    }
+
+    const data = JSON.parse(krAnswerRaw);
+    console.log("✅ WEBHOOK — Pago confirmado:", data);
+
+    // 👉 Aquí guardas el pago en tu BD
+    // await Orden.create({ ...data });
+
+    res.send("OK");
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Webhook error");
+  }
+});
+
+
+/* ============================
+   3️⃣ RETURN URL — Resultado final
+   ============================ */
+router.post("/resultado", async (req, res) => {
+  try {
+    const krAnswerRaw = req.body["kr-answer"] || "{}";
+    const answer = JSON.parse(krAnswerRaw);
+
+    res.json({
+      status: answer.orderStatus,
+      orderId: answer.orderDetails?.orderId,
+      currency: answer.orderDetails?.orderCurrency,
+      amount: answer.orderDetails?.orderTotalAmount,
+      raw: answer
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error procesando resultado" });
+  }
+});
+
 
 module.exports = router;
