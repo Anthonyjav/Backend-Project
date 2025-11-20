@@ -202,19 +202,18 @@ router.post("/pago-exitoso", async (req, res) => {
   try {
     console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", req.body);
 
-    const data = req.body.data; // Izipay envía los datos dentro de 'data'
+    const data = req.body; // <--- aquí usamos todo el body, no req.body.data
 
-    if (!data) {
-      return res.status(400).json({ error: "No llegó 'data' desde Izipay" });
+    if (!data || Object.keys(data).length === 0) {
+      return res.status(400).json({ error: "No llegaron datos desde Izipay" });
     }
 
     const customer = data.customer?.billingDetails || {};
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
-    // Crear la orden en tu base de datos
     const nuevaOrden = await Orden.create({
-      usuarioId: null, // si tienes usuario logueado, pon su ID
+      usuarioId: null,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -226,7 +225,7 @@ router.post("/pago-exitoso", async (req, res) => {
       direccion: customer.address,
       referencia: "",
       metodoEnvio: "",
-      estado: data.orderStatus.toLowerCase(), // aprobado, rechazado, etc.
+      estado: data.orderStatus.toLowerCase(),
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
       envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
@@ -237,7 +236,7 @@ router.post("/pago-exitoso", async (req, res) => {
       paymentDate: transaction.createdAt || new Date()
     });
 
-    // Guardar los items del carrito si los envías
+    // Guardar items del carrito si existen
     const productos = data.cartItems || [];
     for (const item of productos) {
       await OrdenItem.create({
