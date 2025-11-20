@@ -52,7 +52,7 @@ app.use('/carritoitem', require('./routes/carritoitem'));
 app.use('/ordenes', require('./routes/orden'));
 app.use('/orden-items', require('./routes/ordenItem'));
 app.use('/reclamos', require('./routes/reclamo'));
-app.use('/api/izipay', izipayRouter);
+app.use('/api/izipay', require('./routes/izipay'));
 
 // Puerto
 const PORT = process.env.PORT || 3005;
