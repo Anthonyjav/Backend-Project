@@ -5,6 +5,8 @@ const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
 
 
 // Obtener todas las órdenes
+
+// Obtener todas las órdenes
 router.get('/', async (req, res) => {
   try {
     const ordenes = await Orden.findAll({
