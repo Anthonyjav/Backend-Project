@@ -1,13 +1,41 @@
 const express = require('express');
 const router = express.Router();
-const { OrdenItem } = require('../models');
+const { Orden, OrdenItem } = require('../models');
 
 // Crear item
 router.post('/', async (req, res) => {
   try {
-    const nuevoItem = await OrdenItem.create(req.body);
-    res.status(201).json(nuevoItem);
+    const { items, ...ordenData } = req.body;
+
+    // 1️⃣ Crear la orden principal
+    const nuevaOrden = await Orden.create(ordenData);
+
+    // 2️⃣ Crear los OrdenItems
+    if (items && items.length > 0) {
+      for (const item of items) {
+        if (!item.productoId) {
+          console.error('Item sin productoId:', item);
+          continue;
+        }
+        await OrdenItem.create({
+          ordenId: nuevaOrden.id,
+          productoId: item.productoId,
+          nombreProducto: item.nombreProducto,
+          cantidad: item.cantidad,
+          precio: item.precio,
+          talla: item.talla
+        });
+      }
+    }
+
+    const ordenCompleta = await Orden.findByPk(nuevaOrden.id, {
+      include: [{ model: OrdenItem, as: 'items' }]
+    });
+
+    res.status(201).json(ordenCompleta);
+
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
