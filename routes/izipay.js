@@ -4,7 +4,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { Orden } = require('../models');
 const router = express.Router();
-module.exports = router;
 
 /* ============================
    🔐 CREDENCIALES TEST
