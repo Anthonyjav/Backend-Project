@@ -66,7 +66,7 @@ router.post('/form-token', async (req, res) => {
 
     // Retornar el formToken al frontend
     res.json({ formToken: response.data.answer.formToken });
-  } catch (error: any) {
+  } catch (error) {
     console.error(error.response?.data || error);
     res.status(500).json({ error: 'No se pudo generar formToken' });
   }
