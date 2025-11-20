@@ -200,13 +200,15 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", req.body);
-
-    const data = req.body; // <--- aquí usamos todo el body, no req.body.data
-
-    if (!data || Object.keys(data).length === 0) {
-      return res.status(400).json({ error: "No llegaron datos desde Izipay" });
+    // Izipay envía un form-urlencoded con 'kr-answer'
+    const krAnswerRaw = req.body["kr-answer"];
+    if (!krAnswerRaw) {
+      return res.status(400).json({ error: "No llegó kr-answer desde Izipay" });
     }
+
+    // Parseamos el JSON que viene dentro de kr-answer
+    const data = JSON.parse(krAnswerRaw);
+    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", data);
 
     const customer = data.customer?.billingDetails || {};
     const orderDetails = data.orderDetails || {};
@@ -256,6 +258,7 @@ router.post("/pago-exitoso", async (req, res) => {
     res.status(500).json({ error: "Error interno" });
   }
 });
+
 
 
 module.exports = router;
