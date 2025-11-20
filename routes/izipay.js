@@ -16,6 +16,7 @@ const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
    1️⃣ GENERAR FORM TOKEN
    ============================ */
 router.post('/form-token', async (req, res) => {
+  console.log("🔹 req.body recibido:", req.body);
   const {
     amount,
     currency,
@@ -67,7 +68,7 @@ router.post('/form-token', async (req, res) => {
         }
       }
     );
-
+    console.log("🔹 Respuesta Izipay:", response.data);
     res.json({ formToken: response.data.answer.formToken });
 
   } catch (error) {
