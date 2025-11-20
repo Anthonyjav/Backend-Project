@@ -4,6 +4,19 @@ const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
 
 
 
+// Obtener todas las órdenes
+router.get('/', async (req, res) => {
+  try {
+    const ordenes = await Orden.findAll({
+      include: ['items', 'usuario'],
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(ordenes);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al obtener órdenes' });
+  }
+});
 
 router.get('/:id', async (req, res) => {
   try {
