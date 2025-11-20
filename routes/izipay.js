@@ -54,7 +54,7 @@ router.post('/form-token', async (req, res) => {
 
     // Petición POST al API de Izipay
     const response = await axios.post(
-      'https://api.micuentaweb.pe/api-payment/V4/Charge/CreatePayment',
+      'https://api.micuentaweb-sandbox.com/api-payment/V4/Charge/CreatePayment',
       body,
       {
         headers: {
