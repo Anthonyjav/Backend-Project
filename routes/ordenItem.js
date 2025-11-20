@@ -7,7 +7,6 @@ router.post('/', async (req, res) => {
   try {
     const { items, ...ordenData } = req.body;
 
-    // 1️⃣ Crear la orden principal
     const nuevaOrden = await Orden.create(ordenData);
 
     // 2️⃣ Crear los OrdenItems
