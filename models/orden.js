@@ -23,6 +23,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true
     },
+    orderId: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
     nombre: DataTypes.STRING,
     apellido: DataTypes.STRING,
     email: DataTypes.STRING,
@@ -34,17 +38,21 @@ module.exports = (sequelize, DataTypes) => {
     direccion: DataTypes.STRING,
     referencia: DataTypes.STRING,
     metodoEnvio: DataTypes.STRING,
+    note: DataTypes.TEXT,            // Campo opcional para comentarios
+    currency: DataTypes.STRING,      // Moneda del pago
     estado: {
       type: DataTypes.STRING,
-      defaultValue: 'completado'
+      defaultValue: 'pendiente'
     },
-    subtotal: DataTypes.FLOAT,
-    envio: DataTypes.FLOAT,
-    total: DataTypes.FLOAT,
+    subtotal: DataTypes.DECIMAL(10,2),
+    envio: DataTypes.DECIMAL(10,2),
+    total: DataTypes.DECIMAL(10,2),
     cuponCodigo: DataTypes.STRING
   }, {
     sequelize,
     modelName: 'Orden',
+    tableName: 'ordens',    
+    freezeTableName: true   
   });
 
   return Orden;

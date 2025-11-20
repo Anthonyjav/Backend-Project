@@ -2,21 +2,22 @@ const express = require('express');
 const router = express.Router();
 const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
 
-router.get('/', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const ordenes = await Orden.findAll({
-      include: [
-        { model: OrdenItem, as: 'items' }
-      ],
-      order: [['createdAt', 'DESC']]
+    console.log("BODY recibido:", req.body); // 👈 LOG IMPORTANTE
+
+    const orden = await Orden.create(req.body, {
+      include: [{ model: OrdenItem, as: 'items' }]
     });
 
-    res.json(ordenes);
+    res.json(orden);
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al obtener las órdenes' });
+    console.error("🔥 ERROR AL CREAR ORDEN:", error); // 👈 MOSTRAR ERROR REAL
+    res.status(500).json({ error: error.message }); // 👈 DEVOLVER ERROR REAL
   }
 });
+
 
 router.get('/:id', async (req, res) => {
   try {
@@ -52,22 +53,10 @@ router.get('/:id', async (req, res) => {
 
 
 // Crear una nueva orden
+// Crear una nueva orden
 router.post('/', async (req, res) => {
   try {
     const {
-      usuarioId, nombre, apellido, email, telefono,
-      pais, departamento, provincia, distrito,
-      direccion, referencia, metodoEnvio,
-      subtotal, envio, total, cuponCodigo,
-      items
-    } = req.body;
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'La orden debe contener al menos un producto' });
-    }
-
-    // Crear orden principal
-    const orden = await Orden.create({
       usuarioId,
       nombre,
       apellido,
@@ -84,46 +73,55 @@ router.post('/', async (req, res) => {
       envio,
       total,
       cuponCodigo,
-      estado: 'completado'
+      orderId,
+      currency,
+      note,
+      items // <-- VIENE DEL CARRITO
+    } = req.body;
+
+    // 1. Crear la orden
+    const nuevaOrden = await Orden.create({
+      usuarioId,
+      nombre,
+      apellido,
+      email,
+      telefono,
+      pais,
+      departamento,
+      provincia,
+      distrito,
+      direccion,
+      referencia,
+      metodoEnvio,
+      subtotal,
+      envio,
+      total,
+      cuponCodigo,
+      orderId,
+      currency,
+      note
     });
 
-    // Crear los items relacionados
-    const itemsConOrdenId = items.map(item => ({
-    ordenId: orden.id,
-    productoId: item.productoId,
-    cantidad: item.cantidad,
-    precio: item.precio // Asegúrate que este campo existe y representa el precio unitario o total
-    }));
+    // 2. Crear items de la orden
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await OrdenItem.create({
+          ordenId: nuevaOrden.id,
+          productoId: item.id,
+          nombreProducto: item.nombre,
+          cantidad: item.cantidad,
+          precioUnitario: item.precio,
+          talla: item.talla
+        });
+      }
+    }
 
-
-    await OrdenItem.bulkCreate(itemsConOrdenId);
-
-    // Traer la orden completa con relaciones
-    const ordenConTodo = await Orden.findByPk(orden.id, {
-      include: [
-        {
-          model: OrdenItem,
-          as: 'items'
-        },
-        {
-          model: Usuario,
-          as: 'usuario',
-          attributes: ['id', 'nombre', 'apellido', 'email']
-        }
-      ]
-    });
-
-    res.status(201).json({
-      mensaje: 'Orden creada correctamente',
-      orden: ordenConTodo
-    });
-
+    res.json({ message: 'Orden creada correctamente', orden: nuevaOrden });
   } catch (error) {
-    console.error(' Error al crear orden:', error);
-    res.status(500).json({ error: 'Error al crear orden' });
+    console.error(error);
+    res.status(500).json({ error: 'Error al crear la orden', details: error });
   }
 });
-
 
   
 
