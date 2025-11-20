@@ -39,19 +39,34 @@ module.exports = (sequelize, DataTypes) => {
     metodoEnvio: DataTypes.STRING,
     estado: {
       type: DataTypes.STRING,
-      defaultValue: 'pendiente' // ahora por defecto pendiente hasta confirmar el pago
+      defaultValue: 'pendiente'
     },
     subtotal: DataTypes.FLOAT,
     envio: DataTypes.FLOAT,
     total: DataTypes.FLOAT,
     cuponCodigo: DataTypes.STRING,
 
-    // Campos específicos para Izipay
-    orderIdIzipay: DataTypes.STRING,      // ID que devuelve Izipay
-    transactionId: DataTypes.STRING,      // ID de la transacción en Izipay
-    paymentStatus: DataTypes.STRING,      // Estado del pago (APPROVED, DECLINED, PENDING)
-    paymentResponse: DataTypes.JSON,      // Guardar el payload completo de Izipay
-    paymentDate: DataTypes.DATE           // Fecha en que se confirma el pago
+    // Campos específicos para Izipay con mapeo de nombre de columna
+    orderIdIzipay: {
+      type: DataTypes.STRING,
+      field: 'orderidizipay'   // nombre real en la DB
+    },
+    transactionId: {
+      type: DataTypes.STRING,
+      field: 'transactionid'
+    },
+    paymentStatus: {
+      type: DataTypes.STRING,
+      field: 'paymentstatus'
+    },
+    paymentResponse: {
+      type: DataTypes.JSON,
+      field: 'paymentresponse'
+    },
+    paymentDate: {
+      type: DataTypes.DATE,
+      field: 'paymentdate'
+    }
   }, {
     sequelize,
     modelName: 'Orden',
