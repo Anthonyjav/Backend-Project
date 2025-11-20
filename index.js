@@ -4,6 +4,7 @@ const app = express();
 const db = require('./models');
 require('dotenv').config();
 const path = require('path');
+const izipayRouter = require('./routes/izipay');
 
 // Middleware JSON
 app.use(express.json());
@@ -51,6 +52,7 @@ app.use('/carritoitem', require('./routes/carritoitem'));
 app.use('/ordenes', require('./routes/orden'));
 app.use('/orden-items', require('./routes/ordenItem'));
 app.use('/reclamos', require('./routes/reclamo'));
+app.use('/api/izipay', izipayRouter);
 
 // Puerto
 const PORT = process.env.PORT || 3005;
