@@ -2,22 +2,22 @@ const express = require('express');
 const router = express.Router();
 const { Orden, OrdenItem, Usuario,Producto  } = require('../models');
 
-// Obtener todas las órdenes
 router.get('/', async (req, res) => {
   try {
     const ordenes = await Orden.findAll({
+      include: [
+        { model: Usuario, as: 'usuario', attributes: ['id', 'nombre', 'apellido', 'email'] },
+        { model: OrdenItem, as: 'items' }
+      ],
       order: [['createdAt', 'DESC']]
     });
-
     res.json(ordenes);
-    } catch (error) {
-      console.error('Error al obtener órdenes DETALLE:', error);
-      res.status(500).json({ error: error.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al obtener las órdenes' });
   }
-
 });
 
-// Obtener una orden específica
 router.get('/:id', async (req, res) => {
   try {
     const orden = await Orden.findByPk(req.params.id, {
