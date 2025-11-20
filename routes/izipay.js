@@ -24,7 +24,7 @@ router.post('/form-token', async (req, res) => {
   try {
     // CREDENCIALES CORRECTAS PARA API REST (TEST)
     const USERNAME = "84426447";
-    const PASSWORD = "yL0X1GHOdIBU98vh";
+    const PASSWORD = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
 
     // Header de autenticación Basic
     const auth = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
