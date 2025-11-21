@@ -116,7 +116,7 @@ router.post("/webhook", async (req, res) => {
 
 
     const nuevaOrden = await Orden.create({
-      usuarioId: data.usuarioId || null,
+      usuarioId: metadata.usuarioId || null,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -147,14 +147,18 @@ router.post("/webhook", async (req, res) => {
     // ========================================
     // 2️⃣ GUARDAR ITEMS DE LA ORDEN
     // ========================================
-    const productos = data.metadata?.items || [];
+    const metadata = data.metadata || {};
+    const productos = metadata.items || [];
+
+    console.log("📦 ITEMS RECIBIDOS EN METADATA:", productos);
 
     for (const item of productos) {
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
-        precio: item.precio
+        precio: item.precio,
+        talla: item.talla || null
       });
     }
 
