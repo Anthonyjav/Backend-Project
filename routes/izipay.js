@@ -200,13 +200,11 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    // Izipay envía un form-urlencoded con 'kr-answer'
     const krAnswerRaw = req.body["kr-answer"];
     if (!krAnswerRaw) {
       return res.status(400).json({ error: "No llegó kr-answer desde Izipay" });
     }
 
-    // Parseamos el JSON que viene dentro de kr-answer
     const data = JSON.parse(krAnswerRaw);
     console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", data);
 
@@ -214,8 +212,13 @@ router.post("/pago-exitoso", async (req, res) => {
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
+    // Leer metadata
+    const metadata = data.metadata || {};
+    const usuarioId = metadata.usuarioId || null;
+    const productos = metadata.items || [];
+
     const nuevaOrden = await Orden.create({
-      usuarioId: null,
+      usuarioId: usuarioId,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -238,9 +241,11 @@ router.post("/pago-exitoso", async (req, res) => {
       paymentDate: transaction.createdAt || new Date()
     });
 
-    // Guardar items del carrito si existen
-    const productos = data.cartItems || [];
+    console.log("✅ Orden creada:", nuevaOrden.id);
+
+    // Guardar items del carrito
     for (const item of productos) {
+      if (!item.productoId || !item.precio || !item.cantidad) continue;
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
@@ -249,15 +254,16 @@ router.post("/pago-exitoso", async (req, res) => {
       });
     }
 
-    console.log("✅ Orden creada:", nuevaOrden.id);
+    console.log("🛒 ITEMS GUARDADOS:", productos.length);
 
     res.json({ success: true, message: "Orden creada", ordenId: nuevaOrden.id });
 
   } catch (error) {
-    console.error("❌ Error en /pago-exitoso:", error);
-    res.status(500).json({ error: "Error interno" });
+    console.error("❌ Error en /pago-exitoso:", error.message, error.stack);
+    res.status(500).json({ error: error.message });
   }
 });
+
 
 
 
