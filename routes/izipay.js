@@ -234,12 +234,14 @@ router.post("/pago-exitoso", async (req, res) => {
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
       envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
-      orderIdIzipay: orderDetails.orderId,
+      orderId: orderDetails.orderId,        // <--- ESTO ES CLAVE
+      orderIdIzipay: orderDetails.orderId,  // opcional si quieres mantenerlo
       transactionId: transaction.uuid,
       paymentStatus: data.orderStatus,
       paymentResponse: JSON.stringify(data),
       paymentDate: transaction.createdAt || new Date()
     });
+
 
     console.log("✅ Orden creada:", nuevaOrden.id);
 
