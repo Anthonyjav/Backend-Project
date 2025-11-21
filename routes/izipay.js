@@ -201,24 +201,21 @@ router.post("/resultado", async (req, res) => {
 router.post("/pago-exitoso", async (req, res) => {
   try {
     const krAnswerRaw = req.body["kr-answer"];
-    if (!krAnswerRaw) {
-      return res.status(400).json({ error: "No llegó kr-answer desde Izipay" });
-    }
+    if (!krAnswerRaw) return res.status(400).json({ error: "No llegó kr-answer" });
 
     const data = JSON.parse(krAnswerRaw);
-    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", data);
-
     const customer = data.customer?.billingDetails || {};
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
-    // Leer metadata
+    // Leer metadata enviada desde el frontend
     const metadata = data.metadata || {};
     const usuarioId = metadata.usuarioId || null;
     const productos = metadata.items || [];
 
+    // Crear orden
     const nuevaOrden = await Orden.create({
-      usuarioId: usuarioId,
+      usuarioId: usuarioId,   // ⚠️ aquí antes era customer.usuarioId
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -234,30 +231,30 @@ router.post("/pago-exitoso", async (req, res) => {
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
       envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
-      orderId: orderDetails.orderId,        // <--- ESTO ES CLAVE
-      orderIdIzipay: orderDetails.orderId,  // opcional si quieres mantenerlo
+      orderId: orderDetails.orderId,
+      orderIdIzipay: orderDetails.orderId,
       transactionId: transaction.uuid,
       paymentStatus: data.orderStatus,
       paymentResponse: JSON.stringify(data),
       paymentDate: transaction.createdAt || new Date()
     });
 
-
     console.log("✅ Orden creada:", nuevaOrden.id);
 
-    // Guardar items del carrito
+    // Crear OrdenItem
     for (const item of productos) {
       if (!item.productoId || !item.precio || !item.cantidad) continue;
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
-        precio: item.precio
+        precio: item.precio,
+        talla: item.talla || null,
+        nombreProducto: item.nombreProducto || null
       });
     }
 
     console.log("🛒 ITEMS GUARDADOS:", productos.length);
-
     res.json({ success: true, message: "Orden creada", ordenId: nuevaOrden.id });
 
   } catch (error) {
