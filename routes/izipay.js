@@ -116,7 +116,7 @@ router.post("/webhook", async (req, res) => {
 
 
     const nuevaOrden = await Orden.create({
-      usuarioId: metadata.usuarioId || null,
+      usuarioId: data.usuarioId || null,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -210,69 +210,110 @@ router.post("/pago-exitoso", async (req, res) => {
   try {
     console.log("📌 BODY ORIGINAL:", req.body);
 
+    // ===========================
+    // 1️⃣ Obtener datos enviados en la URL
+    // ===========================
+    const usuarioId = req.query.usuarioId;
+    const itemsRaw = req.query.items;  // <<-- si los estás enviando
+    let items = [];
+
+    if (itemsRaw) {
+      try {
+        items = JSON.parse(itemsRaw);
+      } catch (e) {
+        console.log("⚠ Error parseando items");
+      }
+    }
+
+    console.log("Usuario ID:", usuarioId);
+    console.log("Items recibidos:", items);
+
+    // ===========================
+    // 2️⃣ Validar kr-answer de Izipay
+    // ===========================
     const raw = req.body["kr-answer"];
     if (!raw) {
-      console.log("❌ No llegó kr-answer");
       return res.status(400).json({ error: "kr-answer vacío" });
     }
 
     const answer = JSON.parse(raw);
-    console.log("📌 PARSED ANSWER:", answer);
+    console.log("📌 IZIPAY PARSED:", answer);
 
     const transaction = answer.transactions?.[0];
     if (!transaction) {
-      return res.status(400).json({ error: "transacción inválida" });
+      return res.status(400).json({ error: "Transacción inválida" });
     }
 
-    // Extraemos datos reales
+    // ===========================
+    // 3️⃣ Extraer datos reales del pago
+    // ===========================
     const amount = transaction.amount;
-    const currency = transaction.currency;
-    const orderId = answer.orderDetails.orderId;
-    const email = answer.customer.email;
-    const firstName = answer.customer.billingDetails.firstName;
-    const lastName = answer.customer.billingDetails.lastName;
-    const phoneNumber = answer.customer.billingDetails.phoneNumber;
+    const orderIdIzipay = answer.orderDetails?.orderId;
 
-    // Guardar orden
+    const customer = answer.customer.billingDetails;
+
+    // ===========================
+    // 4️⃣ Crear ORDEN en tu base de datos
+    // ===========================
     const nuevaOrden = await Orden.create({
-      orderId,
-      usuarioId: answer.metadata?.usuarioId || null,
+      usuarioId: usuarioId || null,
+      orderIdIzipay,
       subtotal: amount / 100,
       envio: 0,
       total: amount / 100,
       estado: "pagado",
-      nombre: firstName,
-      apellido: lastName,
-      email,
-      telefono: phoneNumber,
-      pais: answer.customer.billingDetails.country,
-      departamento: answer.customer.billingDetails.state,
-      provincia: answer.customer.billingDetails.city,
-      distrito: answer.customer.billingDetails.city,
-      direccion: answer.customer.billingDetails.address,
+
+      // Datos personales
+      nombre: customer.firstName,
+      apellido: customer.lastName,
+      email: answer.customer.email,
+      telefono: customer.phoneNumber,
+      pais: customer.country,
+      departamento: customer.state,
+      provincia: customer.city,
+      distrito: customer.city,
+      direccion: customer.address,
       referencia: "",
+
+      // Info de pago
+      transactionId: transaction.uuid,
+      paymentStatus: transaction.status,
+      paymentResponse: JSON.stringify(answer),
+      paymentDate: transaction.creationDate,
     });
 
-    // Guardar items
-    const items = answer.metadata?.items || [];
+    console.log("✅ ORDEN GUARDADA ID:", nuevaOrden.id);
 
-    for (const item of items) {
-      await OrdenItem.create({
-        ordenId: nuevaOrden.id,
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-        precio: item.precio,
-      });
+    // ===========================
+    // 5️⃣ Guardar items (si llegaron)
+    // ===========================
+    if (items.length > 0) {
+      for (const item of items) {
+        await OrdenItem.create({
+          ordenId: nuevaOrden.id,
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+          precio: item.precio,
+          talla: item.talla || null,
+        });
+      }
     }
 
-    res.json({ ok: true, ordenId: nuevaOrden.id });
+    console.log("🛒 ITEMS GUARDADOS:", items.length);
+
+    // ===========================
+    // 6️⃣ Respuesta al front
+    // ===========================
+    res.json({
+      message: "Pago registrado correctamente",
+      ordenId: nuevaOrden.id,
+    });
 
   } catch (error) {
     console.log("❌ Error en pago-exitoso:", error);
     res.status(500).json({ error: error.message });
   }
 });
-
 
 
 
