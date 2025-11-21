@@ -38,7 +38,7 @@ router.post('/form-token', async (req, res) => {
     const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
 
     const body = {
-      amount: amount * 100, // Izipay usa centavos
+      amount: amount * 100,
       currency,
       orderId,
       customer: {
@@ -55,8 +55,12 @@ router.post('/form-token', async (req, res) => {
           city,
           zipCode
         }
-      }
+      },
+
+      // 🔥🔥 AÑADIR ESTO 🔥🔥
+      metadata: req.body.metadata
     };
+
 
     const response = await axios.post(
       "https://api.micuentaweb.pe/api-payment/V4/Charge/CreatePayment",
@@ -143,7 +147,7 @@ router.post("/webhook", async (req, res) => {
     // ========================================
     // 2️⃣ GUARDAR ITEMS DE LA ORDEN
     // ========================================
-    const productos = data.cartItems || []; // <-- tu front debe enviar esto
+    const productos = data.metadata?.items || [];
 
     for (const item of productos) {
       await OrdenItem.create({
@@ -200,66 +204,71 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    console.log("🔵 BODY RECIBIDO:", req.body);
+    console.log("📌 BODY ORIGINAL:", req.body);
 
-    const { orderId, usuarioId, items, metadata } = req.body;
+    const raw = req.body["kr-answer"];
+    if (!raw) {
+      console.log("❌ No llegó kr-answer");
+      return res.status(400).json({ error: "kr-answer vacío" });
+    }
 
-    // 1. Crear la orden
+    const answer = JSON.parse(raw);
+    console.log("📌 PARSED ANSWER:", answer);
+
+    const transaction = answer.transactions?.[0];
+    if (!transaction) {
+      return res.status(400).json({ error: "transacción inválida" });
+    }
+
+    // Extraemos datos reales
+    const amount = transaction.amount;
+    const currency = transaction.currency;
+    const orderId = answer.orderDetails.orderId;
+    const email = answer.customer.email;
+    const firstName = answer.customer.billingDetails.firstName;
+    const lastName = answer.customer.billingDetails.lastName;
+    const phoneNumber = answer.customer.billingDetails.phoneNumber;
+
+    // Guardar orden
     const nuevaOrden = await Orden.create({
       orderId,
-      usuarioId,
-      subtotal: metadata.amount,
+      usuarioId: answer.metadata?.usuarioId || null,
+      subtotal: amount / 100,
       envio: 0,
-      total: metadata.amount,
+      total: amount / 100,
       estado: "pagado",
-      nombre: metadata.firstName,
-      apellido: metadata.lastName,
-      email: metadata.email,
-      telefono: metadata.phoneNumber,
-      pais: metadata.country,
-      departamento: metadata.state,
-      provincia: metadata.city,
-      distrito: metadata.city,
-      direccion: metadata.address,
+      nombre: firstName,
+      apellido: lastName,
+      email,
+      telefono: phoneNumber,
+      pais: answer.customer.billingDetails.country,
+      departamento: answer.customer.billingDetails.state,
+      provincia: answer.customer.billingDetails.city,
+      distrito: answer.customer.billingDetails.city,
+      direccion: answer.customer.billingDetails.address,
       referencia: "",
     });
 
-    console.log("🟢 ORDEN CREADA:", nuevaOrden.id);
+    // Guardar items
+    const items = answer.metadata?.items || [];
 
-    // 2. Validar que lleguen items
-    console.log("🟦 ITEMS RECIBIDOS:", items);
-
-    if (!items || items.length === 0) {
-      return res.status(400).json({
-        error: "No se enviaron items para crear OrdenItems"
-      });
-    }
-
-    // 3. Crear cada item asociado a la orden
     for (const item of items) {
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
-        talla: item.talla,
-        color: item.color,
         precio: item.precio,
       });
     }
 
-    console.log("🟢 ORDENITEMS CREADOS");
-
-    // 4. Responder
-    res.json({
-      message: "Orden creada correctamente",
-      ordenId: nuevaOrden.id
-    });
+    res.json({ ok: true, ordenId: nuevaOrden.id });
 
   } catch (error) {
-    console.error("❌ ERROR EN /pago-exitoso:", error);
-    res.status(500).json({ error: "Error al procesar pago" });
+    console.log("❌ Error en pago-exitoso:", error);
+    res.status(500).json({ error: error.message });
   }
 });
+
 
 
 
