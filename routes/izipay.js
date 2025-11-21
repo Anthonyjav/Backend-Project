@@ -200,71 +200,66 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    console.log("📌 BODY ORIGINAL:", req.body);
+    console.log("🔵 BODY RECIBIDO:", req.body);
 
-    const raw = req.body["kr-answer"];
-    if (!raw) {
-      console.log("❌ No llegó kr-answer");
-      return res.status(400).json({ error: "kr-answer vacío" });
-    }
+    const { orderId, usuarioId, items, metadata } = req.body;
 
-    const answer = JSON.parse(raw);
-    console.log("📌 PARSED ANSWER:", answer);
-
-    const transaction = answer.transactions?.[0];
-    if (!transaction) {
-      return res.status(400).json({ error: "transacción inválida" });
-    }
-
-    // Extraemos datos reales
-    const amount = transaction.amount;
-    const currency = transaction.currency;
-    const orderId = answer.orderDetails.orderId;
-    const email = answer.customer.email;
-    const firstName = answer.customer.billingDetails.firstName;
-    const lastName = answer.customer.billingDetails.lastName;
-    const phoneNumber = answer.customer.billingDetails.phoneNumber;
-
-    // Guardar orden
+    // 1. Crear la orden
     const nuevaOrden = await Orden.create({
       orderId,
-      usuarioId: answer.metadata?.usuarioId || null,
-      subtotal: amount / 100,
+      usuarioId,
+      subtotal: metadata.amount,
       envio: 0,
-      total: amount / 100,
+      total: metadata.amount,
       estado: "pagado",
-      nombre: firstName,
-      apellido: lastName,
-      email,
-      telefono: phoneNumber,
-      pais: answer.customer.billingDetails.country,
-      departamento: answer.customer.billingDetails.state,
-      provincia: answer.customer.billingDetails.city,
-      distrito: answer.customer.billingDetails.city,
-      direccion: answer.customer.billingDetails.address,
+      nombre: metadata.firstName,
+      apellido: metadata.lastName,
+      email: metadata.email,
+      telefono: metadata.phoneNumber,
+      pais: metadata.country,
+      departamento: metadata.state,
+      provincia: metadata.city,
+      distrito: metadata.city,
+      direccion: metadata.address,
       referencia: "",
     });
 
-    // Guardar items
-    const items = answer.metadata?.items || [];
+    console.log("🟢 ORDEN CREADA:", nuevaOrden.id);
 
+    // 2. Validar que lleguen items
+    console.log("🟦 ITEMS RECIBIDOS:", items);
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({
+        error: "No se enviaron items para crear OrdenItems"
+      });
+    }
+
+    // 3. Crear cada item asociado a la orden
     for (const item of items) {
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
+        talla: item.talla,
+        color: item.color,
         precio: item.precio,
       });
     }
 
-    res.json({ ok: true, ordenId: nuevaOrden.id });
+    console.log("🟢 ORDENITEMS CREADOS");
+
+    // 4. Responder
+    res.json({
+      message: "Orden creada correctamente",
+      ordenId: nuevaOrden.id
+    });
 
   } catch (error) {
-    console.log("❌ Error en pago-exitoso:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ ERROR EN /pago-exitoso:", error);
+    res.status(500).json({ error: "Error al procesar pago" });
   }
 });
-
 
 
 
