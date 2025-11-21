@@ -13,62 +13,42 @@ const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
 const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
 
 /* ============================
-   1️⃣ CREAR ORDEN Y GENERAR FORM TOKEN
+   1️⃣ GENERAR FORM TOKEN
    ============================ */
 router.post('/form-token', async (req, res) => {
+  console.log("🔹 req.body recibido:", req.body);
+  const {
+    amount,
+    currency,
+    orderId,
+    email,
+    firstName,
+    lastName,
+    phoneNumber,
+    identityType,
+    identityCode,
+    address,
+    country,
+    state,
+    city,
+    zipCode
+  } = req.body;
+
   try {
-    const { usuarioId, carrito, currency = "PEN", email, firstName, lastName, phoneNumber, address, state, city, zipCode, country = "PE" } = req.body;
-
-    // Calcular subtotal y total
-    const subtotal = carrito.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
-    const total = subtotal; // puedes sumar envío si tienes
-
-    // Crear orden pendiente
-    const nuevaOrden = await Orden.create({
-      usuarioId,
-      nombre: firstName,
-      apellido: lastName,
-      email,
-      telefono: phoneNumber,
-      pais: country,
-      departamento: state,
-      provincia: city,
-      distrito: "",
-      direccion: address,
-      referencia: "",
-      metodoEnvio: "",
-      estado: "pendiente",
-      subtotal,
-      envio: 0,
-      total,
-      orderId: `ORD-${Date.now()}`
-    });
-
-    // Crear items
-    for (const item of carrito) {
-      await OrdenItem.create({
-        ordenId: nuevaOrden.id,
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-        precio: item.precio,
-        talla: item.talla || null,
-        nombreProducto: item.nombreProducto || null
-      });
-    }
-
-    // Preparar payload para Izipay
     const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
 
     const body = {
-      amount: total * 100, // centavos
+      amount: amount * 100, // Izipay usa centavos
       currency,
-      orderId: nuevaOrden.orderId,
+      orderId,
       customer: {
         email,
         billingDetails: {
           firstName,
           lastName,
           phoneNumber,
+          identityType,
+          identityCode,
           address,
           country,
           state,
@@ -88,24 +68,28 @@ router.post('/form-token', async (req, res) => {
         }
       }
     );
-
-    res.json({ formToken: response.data.answer.formToken, orderId: nuevaOrden.orderId });
+    console.log("🔹 Respuesta Izipay:", response.data);
+    res.json({ formToken: response.data.answer.formToken });
 
   } catch (error) {
     console.error(error.response?.data || error);
-    res.status(500).json({ error: "No se pudo generar formToken", info: error.response?.data });
+    res.status(500).json({
+      error: "No se pudo generar formToken",
+      info: error.response?.data
+    });
   }
 });
 
 /* ============================
-   2️⃣ WEBHOOK (IPN) Izipay
+   2️⃣ WEBHOOK (IPN)
    ============================ */
 router.post("/webhook", async (req, res) => {
   try {
+
     const krAnswerRaw = req.body["kr-answer"];
     const receivedHash = req.body["kr-hash"];
 
-    // Validar HMAC
+    // Validar firma HMAC
     const calculatedHash = crypto
       .createHmac("sha256", HMAC_TEST)
       .update(krAnswerRaw, "utf8")
@@ -119,19 +103,58 @@ router.post("/webhook", async (req, res) => {
     const data = JSON.parse(krAnswerRaw);
     console.log("🔔 WEBHOOK RECIBIDO:", data);
 
-    // Actualizar orden existente
-    const orden = await Orden.findOne({ where: { orderId: data.orderDetails?.orderId } });
-    if (!orden) return res.status(404).send("Orden no encontrada");
-
+    // ========================================
+    // 1️⃣ CREAR ORDEN EN TU TABLA Orden
+    // ========================================
+    const customer = data.customer?.billingDetails || {};
+    const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
-    await orden.update({
+
+    const nuevaOrden = await Orden.create({
+      usuarioId: data.usuarioId || null,
+      nombre: customer.firstName,
+      apellido: customer.lastName,
+      email: data.customer?.email,
+      telefono: customer.phoneNumber,
+      pais: customer.country || "Perú",
+      departamento: customer.state,
+      provincia: customer.city,
+      distrito: "",
+      direccion: customer.address,
+      referencia: "",
+      metodoEnvio: "",
       estado: data.orderStatus.toLowerCase(),
+      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+      envio: 0,
+      total: (orderDetails.orderPaidAmount || 0) / 100,
+      
+      // ✅ Campos de Izipay
+      orderIdIzipay: orderDetails.orderId,
       transactionId: transaction.uuid,
       paymentStatus: data.orderStatus,
-      paymentResponse: JSON.stringify(data),
+      paymentResponse: JSON.stringify(data), // guarda todo el payload si quieres
       paymentDate: transaction.createdAt || new Date()
     });
+
+
+    console.log("✅ ORDEN GUARDADA:", nuevaOrden.id);
+
+    // ========================================
+    // 2️⃣ GUARDAR ITEMS DE LA ORDEN
+    // ========================================
+    const productos = data.cartItems || []; // <-- tu front debe enviar esto
+
+    for (const item of productos) {
+      await OrdenItem.create({
+        ordenId: nuevaOrden.id,
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+        precio: item.precio
+      });
+    }
+
+    console.log("🛒 ITEMS GUARDADOS:", productos.length);
 
     return res.send("OK");
 
@@ -141,9 +164,7 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
-/* ============================
-   3️⃣ RESULTADO
-   ============================ */
+
 router.post("/resultado", async (req, res) => {
   try {
     const krAnswerRaw = req.body["kr-answer"] || "{}";
@@ -177,37 +198,72 @@ router.post("/resultado", async (req, res) => {
   }
 });
 
-/* ============================
-   4️⃣ PAGO EXITOSO (actualiza orden existente)
-   ============================ */
 router.post("/pago-exitoso", async (req, res) => {
   try {
     const krAnswerRaw = req.body["kr-answer"];
     if (!krAnswerRaw) return res.status(400).json({ error: "No llegó kr-answer" });
 
     const data = JSON.parse(krAnswerRaw);
+    const customer = data.customer?.billingDetails || {};
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
-    // Buscar orden por orderId
-    const orden = await Orden.findOne({ where: { orderId: orderDetails.orderId } });
-    if (!orden) return res.status(404).json({ error: "Orden no encontrada" });
+    // Leer metadata enviada desde el frontend
+    const metadata = data.metadata || {};
+    const usuarioId = metadata.usuarioId || null;
+    const productos = metadata.items || [];
 
-    await orden.update({
+    // Crear orden
+    const nuevaOrden = await Orden.create({
+      usuarioId: usuarioId,   // ⚠️ aquí antes era customer.usuarioId
+      nombre: customer.firstName,
+      apellido: customer.lastName,
+      email: data.customer?.email,
+      telefono: customer.phoneNumber,
+      pais: customer.country || "PE",
+      departamento: customer.state,
+      provincia: customer.city,
+      distrito: "",
+      direccion: customer.address,
+      referencia: "",
+      metodoEnvio: "",
       estado: data.orderStatus.toLowerCase(),
+      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+      envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
+      orderId: orderDetails.orderId,
+      orderIdIzipay: orderDetails.orderId,
       transactionId: transaction.uuid,
       paymentStatus: data.orderStatus,
       paymentResponse: JSON.stringify(data),
       paymentDate: transaction.createdAt || new Date()
     });
 
-    res.json({ success: true, message: "Orden actualizada", ordenId: orden.id });
+    console.log("✅ Orden creada:", nuevaOrden.id);
+
+    // Crear OrdenItem
+    for (const item of productos) {
+      if (!item.productoId || !item.precio || !item.cantidad) continue;
+      await OrdenItem.create({
+        ordenId: nuevaOrden.id,
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+        precio: item.precio,
+        talla: item.talla || null,
+        nombreProducto: item.nombreProducto || null
+      });
+    }
+
+    console.log("🛒 ITEMS GUARDADOS:", productos.length);
+    res.json({ success: true, message: "Orden creada", ordenId: nuevaOrden.id });
 
   } catch (error) {
     console.error("❌ Error en /pago-exitoso:", error.message, error.stack);
     res.status(500).json({ error: error.message });
   }
 });
+
+
+
 
 module.exports = router;
