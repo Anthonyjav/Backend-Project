@@ -200,51 +200,70 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", req.body);
+    console.log("📌 BODY ORIGINAL:", req.body);
 
-    const { orderId, metadata } = req.body;
+    const raw = req.body["kr-answer"];
+    if (!raw) {
+      console.log("❌ No llegó kr-answer");
+      return res.status(400).json({ error: "kr-answer vacío" });
+    }
 
-    // metadata contiene usuarioId y items (si ya los envías desde el FORM TOKEN)
-    const usuarioId = metadata?.usuarioId;
-    const items = metadata?.items || [];
+    const answer = JSON.parse(raw);
+    console.log("📌 PARSED ANSWER:", answer);
 
+    const transaction = answer.transactions?.[0];
+    if (!transaction) {
+      return res.status(400).json({ error: "transacción inválida" });
+    }
+
+    // Extraemos datos reales
+    const amount = transaction.amount;
+    const currency = transaction.currency;
+    const orderId = answer.orderDetails.orderId;
+    const email = answer.customer.email;
+    const firstName = answer.customer.billingDetails.firstName;
+    const lastName = answer.customer.billingDetails.lastName;
+    const phoneNumber = answer.customer.billingDetails.phoneNumber;
+
+    // Guardar orden
     const nuevaOrden = await Orden.create({
-      orderId,   // <–– YA NO SERÁ NULL
-      usuarioId,
-      subtotal: metadata.amount,
+      orderId,
+      usuarioId: answer.metadata?.usuarioId || null,
+      subtotal: amount / 100,
       envio: 0,
-      total: metadata.amount,
+      total: amount / 100,
       estado: "pagado",
-      nombre: metadata.firstName,
-      apellido: metadata.lastName,
-      email: metadata.email,
-      telefono: metadata.phoneNumber,
-      pais: metadata.country,
-      departamento: metadata.state,
-      provincia: metadata.city,
-      distrito: metadata.city,
-      direccion: metadata.address,
+      nombre: firstName,
+      apellido: lastName,
+      email,
+      telefono: phoneNumber,
+      pais: answer.customer.billingDetails.country,
+      departamento: answer.customer.billingDetails.state,
+      provincia: answer.customer.billingDetails.city,
+      distrito: answer.customer.billingDetails.city,
+      direccion: answer.customer.billingDetails.address,
       referencia: "",
     });
 
-    // Crear OrdenItem
+    // Guardar items
+    const items = answer.metadata?.items || [];
+
     for (const item of items) {
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
-        precio: item.precio
+        precio: item.precio,
       });
     }
 
-    return res.json({ message: "Orden creada", nuevaOrden });
+    res.json({ ok: true, ordenId: nuevaOrden.id });
 
   } catch (error) {
-    console.error("❌ Error en pago exitoso:", error);
-    return res.status(500).json({ error: error.message });
+    console.log("❌ Error en pago-exitoso:", error);
+    res.status(500).json({ error: error.message });
   }
 });
-
 
 
 

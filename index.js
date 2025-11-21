@@ -6,10 +6,9 @@ require('dotenv').config();
 const path = require('path');
 const izipayRouter = require('./routes/izipay');
 
-app.use(express.urlencoded({ extended: false }));
-
-// Middleware JSON
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
 
 // Servir archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
