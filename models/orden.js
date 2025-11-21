@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     orderId: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: true
     },
     nombre: DataTypes.STRING,
     apellido: DataTypes.STRING,

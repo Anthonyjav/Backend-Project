@@ -200,68 +200,51 @@ router.post("/resultado", async (req, res) => {
 
 router.post("/pago-exitoso", async (req, res) => {
   try {
-    const krAnswerRaw = req.body["kr-answer"];
-    if (!krAnswerRaw) return res.status(400).json({ error: "No llegó kr-answer" });
+    console.log("🔹 DATA RECIBIDA DESDE IZIPAY:", req.body);
 
-    const data = JSON.parse(krAnswerRaw);
-    const customer = data.customer?.billingDetails || {};
-    const orderDetails = data.orderDetails || {};
-    const transaction = data.transactions?.[0] || {};
+    const { orderId, metadata } = req.body;
 
-    // Leer metadata enviada desde el frontend
-    const metadata = data.metadata || {};
-    const usuarioId = metadata.usuarioId || null;
-    const productos = metadata.items || [];
+    // metadata contiene usuarioId y items (si ya los envías desde el FORM TOKEN)
+    const usuarioId = metadata?.usuarioId;
+    const items = metadata?.items || [];
 
-    // Crear orden
     const nuevaOrden = await Orden.create({
-      usuarioId: usuarioId,   // ⚠️ aquí antes era customer.usuarioId
-      nombre: customer.firstName,
-      apellido: customer.lastName,
-      email: data.customer?.email,
-      telefono: customer.phoneNumber,
-      pais: customer.country || "PE",
-      departamento: customer.state,
-      provincia: customer.city,
-      distrito: "",
-      direccion: customer.address,
-      referencia: "",
-      metodoEnvio: "",
-      estado: data.orderStatus.toLowerCase(),
-      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+      orderId,   // <–– YA NO SERÁ NULL
+      usuarioId,
+      subtotal: metadata.amount,
       envio: 0,
-      total: (orderDetails.orderPaidAmount || 0) / 100,
-      orderId: orderDetails.orderId,
-      orderIdIzipay: orderDetails.orderId,
-      transactionId: transaction.uuid,
-      paymentStatus: data.orderStatus,
-      paymentResponse: JSON.stringify(data),
-      paymentDate: transaction.createdAt || new Date()
+      total: metadata.amount,
+      estado: "pagado",
+      nombre: metadata.firstName,
+      apellido: metadata.lastName,
+      email: metadata.email,
+      telefono: metadata.phoneNumber,
+      pais: metadata.country,
+      departamento: metadata.state,
+      provincia: metadata.city,
+      distrito: metadata.city,
+      direccion: metadata.address,
+      referencia: "",
     });
 
-    console.log("✅ Orden creada:", nuevaOrden.id);
-
     // Crear OrdenItem
-    for (const item of productos) {
-      if (!item.productoId || !item.precio || !item.cantidad) continue;
+    for (const item of items) {
       await OrdenItem.create({
         ordenId: nuevaOrden.id,
         productoId: item.productoId,
         cantidad: item.cantidad,
-        precio: item.precio,
-        talla: item.talla || null,
-        nombreProducto: item.nombreProducto || null
+        precio: item.precio
       });
     }
 
-    console.log("🛒 ITEMS GUARDADOS:", productos.length);
-    res.json({ success: true, message: "Orden creada", ordenId: nuevaOrden.id });
+    return res.json({ message: "Orden creada", nuevaOrden });
 
   } catch (error) {
-    console.error("❌ Error en /pago-exitoso:", error.message, error.stack);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Error en pago exitoso:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
+
 
 
 
