@@ -2,7 +2,7 @@
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-const { Orden } = require('../models');
+const { Orden, OrdenItem } = require('../models');
 const router = express.Router();
 
 /* ============================
