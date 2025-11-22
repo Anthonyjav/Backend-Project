@@ -13,6 +13,45 @@ const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
 const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
 
 /* ============================
+   Helper: extraer metadata robusta
+   ============================ */
+function extractMetadataFromAnswer(answer) {
+  if (!answer) return null;
+
+  // 1) metadata en root
+  if (answer.metadata) {
+    try {
+      return typeof answer.metadata === 'string' ? JSON.parse(answer.metadata) : answer.metadata;
+    } catch (e) {
+      return answer.metadata;
+    }
+  }
+
+  // 2) orderDetails.metadata
+  if (answer.orderDetails && answer.orderDetails.metadata) {
+    try {
+      return typeof answer.orderDetails.metadata === 'string'
+        ? JSON.parse(answer.orderDetails.metadata)
+        : answer.orderDetails.metadata;
+    } catch (e) {
+      return answer.orderDetails.metadata;
+    }
+  }
+
+  // 3) transactions[0].metadata (común)
+  const tx = answer.transactions && answer.transactions[0];
+  if (tx && tx.metadata) {
+    try {
+      return typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata;
+    } catch (e) {
+      return tx.metadata;
+    }
+  }
+
+  return null;
+}
+
+/* ============================
    1️⃣ GENERAR FORM TOKEN
    ============================ */
 router.post('/form-token', async (req, res) => {
@@ -38,6 +77,7 @@ router.post('/form-token', async (req, res) => {
     const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
 
     const body = {
+      // Atención: tu front ya manda un `amount`. Aquí se conserva tu lógica previa.
       amount: amount * 100,
       currency,
       orderId,
@@ -57,10 +97,9 @@ router.post('/form-token', async (req, res) => {
         }
       },
 
-      // 🔥🔥 AÑADIR ESTO 🔥🔥
+      // 🔥 metadata enviada desde el front
       metadata: req.body.metadata
     };
-
 
     const response = await axios.post(
       "https://api.micuentaweb.pe/api-payment/V4/Charge/CreatePayment",
@@ -90,6 +129,9 @@ router.post('/form-token', async (req, res) => {
    ============================ */
 router.post("/webhook", async (req, res) => {
   try {
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Raw body keys:', Object.keys(req.body));
+    console.log('Raw body preview:', JSON.stringify(req.body).slice(0, 2000));
 
     const krAnswerRaw = req.body["kr-answer"];
     const receivedHash = req.body["kr-hash"];
@@ -107,8 +149,10 @@ router.post("/webhook", async (req, res) => {
 
     const data = JSON.parse(krAnswerRaw);
     console.log("🔥🔥 WEBHOOK COMPLETO:", JSON.stringify(data, null, 2));
-    console.log("🔥 METADATA:", JSON.stringify(data.metadata, null, 2));
 
+    // Extraer metadata robustamente
+    const metadata = extractMetadataFromAnswer(data) || {};
+    console.log("🔥 METADATA (extraída):", JSON.stringify(metadata, null, 2));
 
     // ========================================
     // 1️⃣ CREAR ORDEN EN TU TABLA Orden
@@ -117,9 +161,19 @@ router.post("/webhook", async (req, res) => {
     const orderDetails = data.orderDetails || {};
     const transaction = data.transactions?.[0] || {};
 
+    // parse items dentro de metadata (si viene string)
+    let productos = [];
+    if (metadata.items) {
+      try {
+        productos = typeof metadata.items === 'string' ? JSON.parse(metadata.items) : metadata.items;
+      } catch (e) {
+        console.warn('No se pudo parsear metadata.items, usando raw:', e);
+        productos = metadata.items;
+      }
+    }
 
     const nuevaOrden = await Orden.create({
-      usuarioId: data.usuarioId || null,
+      usuarioId: metadata.usuarioId || data.usuarioId || null,
       nombre: customer.firstName,
       apellido: customer.lastName,
       email: data.customer?.email,
@@ -131,11 +185,11 @@ router.post("/webhook", async (req, res) => {
       direccion: customer.address,
       referencia: "",
       metodoEnvio: "",
-      estado: data.orderStatus.toLowerCase(),
+      estado: (data.orderStatus || '').toLowerCase(),
       subtotal: (orderDetails.orderTotalAmount || 0) / 100,
       envio: 0,
       total: (orderDetails.orderPaidAmount || 0) / 100,
-      
+
       // ✅ Campos de Izipay
       orderIdIzipay: orderDetails.orderId,
       transactionId: transaction.uuid,
@@ -144,28 +198,27 @@ router.post("/webhook", async (req, res) => {
       paymentDate: transaction.createdAt || new Date()
     });
 
-
     console.log("✅ ORDEN GUARDADA:", nuevaOrden.id);
 
     // ========================================
     // 2️⃣ GUARDAR ITEMS DE LA ORDEN
     // ========================================
-    const metadata = data.metadata || {};
-    const productos = metadata.items || [];
-
     console.log("📦 ITEMS RECIBIDOS EN METADATA:", productos);
 
-    for (const item of productos) {
-      await OrdenItem.create({
-        ordenId: nuevaOrden.id,
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-        precio: item.precio,
-        talla: item.talla || null
-      });
+    if (Array.isArray(productos) && productos.length > 0) {
+      for (const item of productos) {
+        await OrdenItem.create({
+          ordenId: nuevaOrden.id,
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+          precio: item.precio,
+          talla: item.talla || null
+        });
+      }
+      console.log("🛒 ITEMS GUARDADOS:", productos.length);
+    } else {
+      console.log("ℹ️ No hay items para guardar en metadata");
     }
-
-    console.log("🛒 ITEMS GUARDADOS:", productos.length);
 
     return res.send("OK");
 
@@ -174,7 +227,6 @@ router.post("/webhook", async (req, res) => {
     return res.status(500).send("Webhook error");
   }
 });
-
 
 router.post("/resultado", async (req, res) => {
   try {
@@ -212,27 +264,11 @@ router.post("/resultado", async (req, res) => {
 router.post("/pago-exitoso", async (req, res) => {
   try {
     console.log("📌 BODY ORIGINAL:", req.body);
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Raw body keys:', Object.keys(req.body));
 
     // ===========================
-    // 1️⃣ Obtener datos enviados en la URL
-    // ===========================
-    const usuarioId = req.query.usuarioId;
-    const itemsRaw = req.query.items;  // <<-- si los estás enviando
-    let items = [];
-
-    if (itemsRaw) {
-      try {
-        items = JSON.parse(itemsRaw);
-      } catch (e) {
-        console.log("⚠ Error parseando items");
-      }
-    }
-
-    console.log("Usuario ID:", usuarioId);
-    console.log("Items recibidos:", items);
-
-    // ===========================
-    // 2️⃣ Validar kr-answer de Izipay
+    // 1️⃣ Parsear kr-answer (IziPay POST)
     // ===========================
     const raw = req.body["kr-answer"];
     if (!raw) {
@@ -242,22 +278,42 @@ router.post("/pago-exitoso", async (req, res) => {
     const answer = JSON.parse(raw);
     console.log("📌 IZIPAY PARSED:", answer);
 
+    // ===========================
+    // 2️⃣ Extraer metadata desde answer
+    // ===========================
+    const metadata = extractMetadataFromAnswer(answer) || {};
+    console.log("Metadata extraída en pago-exitoso:", metadata);
+
+    // Preferir metadata.usuarioId y metadata.items
+    const usuarioId = metadata.usuarioId || req.query.usuarioId || null;
+    let items = [];
+    if (metadata.items) {
+      try {
+        items = typeof metadata.items === 'string' ? JSON.parse(metadata.items) : metadata.items;
+      } catch (e) {
+        console.warn("No se pudo parsear metadata.items:", e);
+        items = metadata.items;
+      }
+    }
+
+    console.log("Usuario ID:", usuarioId);
+    console.log("Items recibidos:", items);
+
+    // ===========================
+    // 3️⃣ Validar transacción
+    // ===========================
     const transaction = answer.transactions?.[0];
     if (!transaction) {
       return res.status(400).json({ error: "Transacción inválida" });
     }
 
     // ===========================
-    // 3️⃣ Extraer datos reales del pago
+    // 4️⃣ Crear ORDEN en tu base de datos
     // ===========================
     const amount = transaction.amount;
     const orderIdIzipay = answer.orderDetails?.orderId;
-
     const customer = answer.customer.billingDetails;
 
-    // ===========================
-    // 4️⃣ Crear ORDEN en tu base de datos
-    // ===========================
     const nuevaOrden = await Orden.create({
       usuarioId: usuarioId || null,
       orderIdIzipay,
@@ -282,7 +338,7 @@ router.post("/pago-exitoso", async (req, res) => {
       transactionId: transaction.uuid,
       paymentStatus: transaction.status,
       paymentResponse: JSON.stringify(answer),
-      paymentDate: transaction.creationDate,
+      paymentDate: transaction.creationDate || new Date(),
     });
 
     console.log("✅ ORDEN GUARDADA ID:", nuevaOrden.id);
@@ -290,7 +346,7 @@ router.post("/pago-exitoso", async (req, res) => {
     // ===========================
     // 5️⃣ Guardar items (si llegaron)
     // ===========================
-    if (items.length > 0) {
+    if (Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         await OrdenItem.create({
           ordenId: nuevaOrden.id,
@@ -302,7 +358,7 @@ router.post("/pago-exitoso", async (req, res) => {
       }
     }
 
-    console.log("🛒 ITEMS GUARDADOS:", items.length);
+    console.log("🛒 ITEMS GUARDADOS:", Array.isArray(items) ? items.length : 0);
 
     // ===========================
     // 6️⃣ Respuesta al front
@@ -317,7 +373,5 @@ router.post("/pago-exitoso", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-
 
 module.exports = router;
