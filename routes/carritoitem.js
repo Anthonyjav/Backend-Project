@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { CarritoItem, Carrito, Producto } = require('../models');
-
+const { Orden, OrdenItem, Carrito, CarritoItem } = require('../models');
 // Obtener todos los items del carrito de un usuario
 router.get('/:usuarioId', async (req, res) => {
   try {

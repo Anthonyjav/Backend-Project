@@ -1,8 +1,7 @@
-// backend/routes/izipay.js
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-const { Orden, OrdenItem } = require('../models');
+const { Orden, OrdenItem, Carrito, CarritoItem } = require('../models');
 const router = express.Router();
 
 /* ============================
@@ -50,46 +49,6 @@ function extractMetadataFromAnswer(answer) {
 
 function generateServerOrderId() {
   return `SV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-/**
- * Intento de limpiar el carrito del usuario usando los endpoints existentes del backend.
- * - Construye baseUrl desde env BACKEND_URL o desde la petición (req.protocol + host).
- * - GET /carrito/:userId y luego DELETE /carrito/item/:itemId por cada item.
- *
- * NOTA: este enfoque usa llamadas HTTP internas para no depender del modelo exacto del carrito.
- */
-async function clearCartForUser(userId, req) {
-  if (!userId) {
-    console.log('clearCartForUser: no se indicó usuarioId, se omite limpieza de carrito');
-    return;
-  }
-
-  try {
-    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
-    const carritoRes = await axios.get(`${baseUrl}/carrito/${userId}`);
-    const items = carritoRes.data?.items || carritoRes.data || [];
-
-    if (!Array.isArray(items) || items.length === 0) {
-      console.log(`clearCartForUser: no hay items para usuario ${userId}`);
-      return;
-    }
-
-    for (const it of items) {
-      const itemId = it.id || it.itemId || it.carritoItemId;
-      if (!itemId) continue;
-      try {
-        await axios.delete(`${baseUrl}/carrito/item/${itemId}`);
-        console.log(`clearCartForUser: eliminado item ${itemId} para usuario ${userId}`);
-      } catch (e) {
-        console.warn(`clearCartForUser: error eliminando item ${itemId}:`, e.message);
-      }
-    }
-
-    console.log('clearCartForUser: finalizado para usuario', userId);
-  } catch (e) {
-    console.warn('clearCartForUser: no se pudo limpiar carrito:', e.message);
-  }
 }
 
 /* ============================
@@ -219,34 +178,58 @@ router.post("/webhook", async (req, res) => {
 
     console.log("Decisiones: appOrderId=", appOrderId, "metodoEnvio=", metodoEnvio);
 
-    const nuevaOrden = await Orden.create({
-      orderId: appOrderId,
-      usuarioId: metadata.usuarioId || data.usuarioId || null,
-      nombre: customer.firstName,
-      apellido: customer.lastName,
-      email: data.customer?.email,
-      telefono: customer.phoneNumber,
-      pais: customer.country || "Perú",
-      departamento: departamento,
-      provincia: provincia,
-      distrito: distrito || "",
-      direccion: customer.address,
-      referencia: "",
-      metodoEnvio: metodoEnvio,
-      estado: (data.orderStatus || '').toLowerCase(),
-      subtotal: (orderDetails.orderTotalAmount || 0) / 100,
-      envio: 0,
-      total: (orderDetails.orderPaidAmount || 0) / 100,
+    // Evitar duplicados: intentar buscar por transaction.uuid o orderIdIzipay
+    let ordenExistente = null;
+    try {
+      ordenExistente = await Orden.findOne({
+        where: {
+          transactionId: transaction.uuid
+        }
+      });
+    } catch (e) {
+      console.warn('Error buscando orden existente:', e.message);
+    }
 
-      // Campos de Izipay
-      orderIdIzipay: orderDetails.orderId,
-      transactionId: transaction.uuid,
-      paymentStatus: data.orderStatus,
-      paymentResponse: JSON.stringify(data),
-      paymentDate: transaction.createdAt || new Date()
-    });
+    let nuevaOrden;
+    if (ordenExistente) {
+      // actualizar
+      ordenExistente.paymentStatus = data.orderStatus || ordenExistente.paymentStatus;
+      ordenExistente.paymentResponse = JSON.stringify(data);
+      ordenExistente.estado = (data.orderStatus || ordenExistente.estado || 'pagado').toLowerCase();
+      ordenExistente.total = (orderDetails.orderPaidAmount || transaction.amount || 0) / 100;
+      await ordenExistente.save();
+      nuevaOrden = ordenExistente;
+      console.log('Orden ya existía, actualizada ID:', nuevaOrden.id);
+    } else {
+      nuevaOrden = await Orden.create({
+        orderId: appOrderId,
+        usuarioId: metadata.usuarioId || data.usuarioId || null,
+        nombre: customer.firstName,
+        apellido: customer.lastName,
+        email: data.customer?.email,
+        telefono: customer.phoneNumber,
+        pais: customer.country || "Perú",
+        departamento: departamento,
+        provincia: provincia,
+        distrito: distrito || "",
+        direccion: customer.address,
+        referencia: "",
+        metodoEnvio: metodoEnvio,
+        estado: (data.orderStatus || '').toLowerCase(),
+        subtotal: (orderDetails.orderTotalAmount || 0) / 100,
+        envio: 0,
+        total: (orderDetails.orderPaidAmount || 0) / 100,
 
-    console.log("✅ ORDEN GUARDADA:", nuevaOrden.id, "orderId(app)=", appOrderId);
+        // Campos de Izipay
+        orderIdIzipay: orderDetails.orderId,
+        transactionId: transaction.uuid,
+        paymentStatus: data.orderStatus,
+        paymentResponse: JSON.stringify(data),
+        paymentDate: transaction.createdAt || new Date()
+      });
+
+      console.log("✅ ORDEN GUARDADA:", nuevaOrden.id, "orderId(app)=", appOrderId);
+    }
 
     console.log("📦 ITEMS RECIBIDOS EN METADATA:", productos);
 
@@ -265,10 +248,20 @@ router.post("/webhook", async (req, res) => {
       console.log("ℹ️ No hay items para guardar en metadata");
     }
 
-    // LIMPIAR CARRITO: intentamos limpiar el carrito del usuario asociado (si viene usuarioId en metadata)
+    // Intentar vaciar carrito del usuario (si viene usuarioId)
     const usuarioToClear = metadata.usuarioId || data.usuarioId || null;
     if (usuarioToClear) {
-      await clearCartForUser(usuarioToClear, req);
+      try {
+        const carrito = await Carrito.findOne({ where: { usuarioId: usuarioToClear } });
+        if (carrito) {
+          await CarritoItem.destroy({ where: { carritoId: carrito.id } });
+          console.log(`Carrito vaciado para usuario ${usuarioToClear}`);
+        } else {
+          console.log(`No se encontró carrito para usuario ${usuarioToClear}`);
+        }
+      } catch (e) {
+        console.warn('Error vaciando carrito:', e.message);
+      }
     }
 
     return res.send("OK");
@@ -279,9 +272,6 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
-/* ============================
-   /resultado: response helper
-   ============================ */
 router.post("/resultado", async (req, res) => {
   try {
     const krAnswerRaw = req.body["kr-answer"] || "{}";
@@ -317,7 +307,7 @@ router.post("/resultado", async (req, res) => {
 
 /* ============================
    /pago-exitoso: endpoint llamado por IziPay (kr-post-url-success)
-   Devuelve HTML con alerta + redirección al perfil del frontend
+   Devuelve HTML que escribe en localStorage y redirige al perfil del frontend
    ============================ */
 router.post("/pago-exitoso", async (req, res) => {
   try {
@@ -367,38 +357,58 @@ router.post("/pago-exitoso", async (req, res) => {
     const provincia = metadata.state || metadata.provincia || customer.city || (answer.customer?.shippingDetails?.city) || null;
     const distrito = metadata.city || metadata.distrito || (answer.customer?.shippingDetails?.district) || null;
 
-    const nuevaOrden = await Orden.create({
-      orderId: appOrderId,
-      usuarioId: usuarioId || null,
-      orderIdIzipay,
-      subtotal: amount / 100,
-      envio: 0,
-      total: amount / 100,
-      estado: "pagado",
+    // 1) Evitar duplicados
+    let ordenExistente = null;
+    try {
+      ordenExistente = await Orden.findOne({ where: { transactionId: transaction.uuid } });
+    } catch (e) {
+      console.warn('Error buscando orden existente:', e.message);
+    }
 
-      // Datos personales
-      nombre: customer.firstName,
-      apellido: customer.lastName,
-      email: answer.customer.email,
-      telefono: customer.phoneNumber,
-      pais: customer.country,
-      departamento: departamento,
-      provincia: provincia,
-      distrito: distrito || "",
-      direccion: customer.address,
-      referencia: "",
+    let nuevaOrden;
+    if (ordenExistente) {
+      ordenExistente.paymentStatus = transaction.status || ordenExistente.paymentStatus;
+      ordenExistente.paymentResponse = JSON.stringify(answer);
+      ordenExistente.estado = (answer.orderStatus || ordenExistente.estado || 'pagado').toLowerCase();
+      ordenExistente.total = (transaction.amount || (answer.orderDetails && answer.orderDetails.orderPaidAmount) || 0) / 100;
+      await ordenExistente.save();
+      nuevaOrden = ordenExistente;
+      console.log('Orden ya existía, actualizada ID:', nuevaOrden.id);
+    } else {
+      nuevaOrden = await Orden.create({
+        orderId: appOrderId,
+        usuarioId: usuarioId || null,
+        orderIdIzipay,
+        subtotal: amount / 100,
+        envio: 0,
+        total: amount / 100,
+        estado: "pagado",
 
-      metodoEnvio: metodoEnvio,
+        // Datos personales
+        nombre: customer.firstName,
+        apellido: customer.lastName,
+        email: answer.customer.email,
+        telefono: customer.phoneNumber,
+        pais: customer.country,
+        departamento: departamento,
+        provincia: provincia,
+        distrito: distrito || "",
+        direccion: customer.address,
+        referencia: "",
 
-      // Info de pago
-      transactionId: transaction.uuid,
-      paymentStatus: transaction.status,
-      paymentResponse: JSON.stringify(answer),
-      paymentDate: transaction.creationDate || new Date(),
-    });
+        metodoEnvio: metodoEnvio,
 
-    console.log("✅ ORDEN GUARDADA ID:", nuevaOrden.id, "orderId(app)=", appOrderId);
+        // Info de pago
+        transactionId: transaction.uuid,
+        paymentStatus: transaction.status,
+        paymentResponse: JSON.stringify(answer),
+        paymentDate: transaction.creationDate || new Date(),
+      });
 
+      console.log("✅ ORDEN GUARDADA ID:", nuevaOrden.id, "orderId(app)=", appOrderId);
+    }
+
+    // Guardar items
     if (Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         await OrdenItem.create({
@@ -413,45 +423,36 @@ router.post("/pago-exitoso", async (req, res) => {
 
     console.log("🛒 ITEMS GUARDADOS:", Array.isArray(items) ? items.length : 0);
 
-    // Limpiar carrito si tenemos usuario
+    // VACIAR CARRITO del usuario usando modelos directos (más fiable)
     if (usuarioId) {
-      await clearCartForUser(usuarioId, req);
+      try {
+        const carrito = await Carrito.findOne({ where: { usuarioId } });
+        if (carrito) {
+          await CarritoItem.destroy({ where: { carritoId: carrito.id } });
+          console.log(`Carrito vaciado para usuario ${usuarioId}`);
+        } else {
+          console.log(`No se encontró carrito para usuario ${usuarioId}`);
+        }
+      } catch (e) {
+        console.warn('Error vaciando carrito:', e.message);
+      }
     }
 
-    // RESPUESTA HTML: alerta + redirección al perfil del frontend
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sgstudio.shop'; // ajusta si necesario
-    const profilePath = '/usuario/perfil'; // ruta en tu Next.js
+    // RESPUESTA HTML: escribe en localStorage y redirige al perfil del frontend
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const profilePath = '/usuario/perfil';
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pago Exitoso</title>
-  <style>
-    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f7fafc; color:#111827; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
-    .card { background:white; padding:24px; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.08); text-align:center; max-width:420px; }
-    h1 { margin:0 0 8px; font-size:20px; }
-    p { margin:0 0 16px; color:#4b5563; }
-    .ok { display:inline-block; background:#16a34a; color:white; padding:10px 18px; border-radius:8px; text-decoration:none; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Pago registrado con éxito</h1>
-    <p>Gracias por tu compra. Serás redirigido a tu perfil en breve.</p>
-    <a class="ok" href="${FRONTEND_URL + profilePath}">Ir al perfil ahora</a>
-  </div>
-
+<html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body>
   <script>
-    try { alert('Pago registrado correctamente.'); } catch(e) {}
-    setTimeout(function() {
-      window.location.href = '${FRONTEND_URL + profilePath}';
-    }, 1500);
+    try {
+      localStorage.setItem('pago_result', JSON.stringify({ status: 'success', orderId: '${appOrderId}', ordenDbId: ${nuevaOrden.id} }));
+    } catch(e) {}
+    window.location.href = '${FRONTEND_URL + profilePath}';
   </script>
-</body>
-</html>`);
+  <p>Procesando pago... Si no se redirige, <a href="${FRONTEND_URL + profilePath}">haz clic aquí</a>.</p>
+</body></html>`);
 
   } catch (error) {
     console.log("❌ Error en pago-exitoso:", error);
