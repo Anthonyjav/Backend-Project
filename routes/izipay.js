@@ -52,6 +52,46 @@ function generateServerOrderId() {
   return `SV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+/**
+ * Intento de limpiar el carrito del usuario usando los endpoints existentes del backend.
+ * - Construye baseUrl desde env BACKEND_URL o desde la petición (req.protocol + host).
+ * - GET /carrito/:userId y luego DELETE /carrito/item/:itemId por cada item.
+ *
+ * NOTA: este enfoque usa llamadas HTTP internas para no depender del modelo exacto del carrito.
+ */
+async function clearCartForUser(userId, req) {
+  if (!userId) {
+    console.log('clearCartForUser: no se indicó usuarioId, se omite limpieza de carrito');
+    return;
+  }
+
+  try {
+    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+    const carritoRes = await axios.get(`${baseUrl}/carrito/${userId}`);
+    const items = carritoRes.data?.items || carritoRes.data || [];
+
+    if (!Array.isArray(items) || items.length === 0) {
+      console.log(`clearCartForUser: no hay items para usuario ${userId}`);
+      return;
+    }
+
+    for (const it of items) {
+      const itemId = it.id || it.itemId || it.carritoItemId;
+      if (!itemId) continue;
+      try {
+        await axios.delete(`${baseUrl}/carrito/item/${itemId}`);
+        console.log(`clearCartForUser: eliminado item ${itemId} para usuario ${userId}`);
+      } catch (e) {
+        console.warn(`clearCartForUser: error eliminando item ${itemId}:`, e.message);
+      }
+    }
+
+    console.log('clearCartForUser: finalizado para usuario', userId);
+  } catch (e) {
+    console.warn('clearCartForUser: no se pudo limpiar carrito:', e.message);
+  }
+}
+
 /* ============================
    1️⃣ GENERAR FORM TOKEN
    ============================ */
@@ -180,7 +220,6 @@ router.post("/webhook", async (req, res) => {
     console.log("Decisiones: appOrderId=", appOrderId, "metodoEnvio=", metodoEnvio);
 
     const nuevaOrden = await Orden.create({
-      // guardamos también el orderId de la app si viene
       orderId: appOrderId,
       usuarioId: metadata.usuarioId || data.usuarioId || null,
       nombre: customer.firstName,
@@ -226,6 +265,12 @@ router.post("/webhook", async (req, res) => {
       console.log("ℹ️ No hay items para guardar en metadata");
     }
 
+    // LIMPIAR CARRITO: intentamos limpiar el carrito del usuario asociado (si viene usuarioId en metadata)
+    const usuarioToClear = metadata.usuarioId || data.usuarioId || null;
+    if (usuarioToClear) {
+      await clearCartForUser(usuarioToClear, req);
+    }
+
     return res.send("OK");
 
   } catch (error) {
@@ -234,6 +279,9 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
+/* ============================
+   /resultado: response helper
+   ============================ */
 router.post("/resultado", async (req, res) => {
   try {
     const krAnswerRaw = req.body["kr-answer"] || "{}";
@@ -267,6 +315,10 @@ router.post("/resultado", async (req, res) => {
   }
 });
 
+/* ============================
+   /pago-exitoso: endpoint llamado por IziPay (kr-post-url-success)
+   Devuelve HTML con alerta + redirección al perfil del frontend
+   ============================ */
 router.post("/pago-exitoso", async (req, res) => {
   try {
     console.log("📌 BODY ORIGINAL:", req.body);
@@ -307,7 +359,7 @@ router.post("/pago-exitoso", async (req, res) => {
     const orderIdIzipay = answer.orderDetails?.orderId;
     const customer = answer.customer.billingDetails;
 
-    // Nuevas: priorizar metadata.orderId o req.body.orderId, guardar metodoEnvio si viene
+    // Priorizar metadata.orderId o req.body.orderId, guardar metodoEnvio si viene
     const appOrderId = metadata.orderId || req.body.orderId || (transaction && transaction.metadata && transaction.metadata.orderId) || generateServerOrderId();
     const metodoEnvio = req.body.metodoEnvio || metadata.metodoEnvio || (transaction && transaction.metadata && transaction.metadata.metodoEnvio) || null;
 
@@ -361,10 +413,45 @@ router.post("/pago-exitoso", async (req, res) => {
 
     console.log("🛒 ITEMS GUARDADOS:", Array.isArray(items) ? items.length : 0);
 
-    res.json({
-      message: "Pago registrado correctamente",
-      ordenId: nuevaOrden.id,
-    });
+    // Limpiar carrito si tenemos usuario
+    if (usuarioId) {
+      await clearCartForUser(usuarioId, req);
+    }
+
+    // RESPUESTA HTML: alerta + redirección al perfil del frontend
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sgstudio.shop'; // ajusta si necesario
+    const profilePath = '/usuario/perfil'; // ruta en tu Next.js
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pago Exitoso</title>
+  <style>
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f7fafc; color:#111827; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { background:white; padding:24px; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.08); text-align:center; max-width:420px; }
+    h1 { margin:0 0 8px; font-size:20px; }
+    p { margin:0 0 16px; color:#4b5563; }
+    .ok { display:inline-block; background:#16a34a; color:white; padding:10px 18px; border-radius:8px; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Pago registrado con éxito</h1>
+    <p>Gracias por tu compra. Serás redirigido a tu perfil en breve.</p>
+    <a class="ok" href="${FRONTEND_URL + profilePath}">Ir al perfil ahora</a>
+  </div>
+
+  <script>
+    try { alert('Pago registrado correctamente.'); } catch(e) {}
+    setTimeout(function() {
+      window.location.href = '${FRONTEND_URL + profilePath}';
+    }, 1500);
+  </script>
+</body>
+</html>`);
 
   } catch (error) {
     console.log("❌ Error en pago-exitoso:", error);
