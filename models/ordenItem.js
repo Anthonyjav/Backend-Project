@@ -44,7 +44,15 @@ module.exports = (sequelize, DataTypes) => {
     nombreProducto: {
       type: DataTypes.STRING,
       allowNull: true
-    }
+    },
+    imagen: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    color: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   }, {
     sequelize,
     modelName: 'OrdenItem',

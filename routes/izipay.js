@@ -12,43 +12,106 @@ const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
 const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
 
 /* ============================
-   Helpers
+   Helpers robustos para metadata/items
    ============================ */
-function extractMetadataFromAnswer(answer) {
-  if (!answer) return null;
-
-  if (answer.metadata) {
-    try {
-      return typeof answer.metadata === 'string' ? JSON.parse(answer.metadata) : answer.metadata;
-    } catch (e) {
-      return answer.metadata;
-    }
-  }
-
-  if (answer.orderDetails && answer.orderDetails.metadata) {
-    try {
-      return typeof answer.orderDetails.metadata === 'string'
-        ? JSON.parse(answer.orderDetails.metadata)
-        : answer.orderDetails.metadata;
-    } catch (e) {
-      return answer.orderDetails.metadata;
-    }
-  }
-
-  const tx = answer.transactions && answer.transactions[0];
-  if (tx && tx.metadata) {
-    try {
-      return typeof tx.metadata === 'string' ? JSON.parse(tx.metadata) : tx.metadata;
-    } catch (e) {
-      return tx.metadata;
-    }
-  }
-
-  return null;
-}
-
 function generateServerOrderId() {
   return `SV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+// Robust parser para metadata.items (maneja stringified JSON, doble-escaped, arrays, objetos)
+function parseMetadataItems(itemsRaw) {
+  if (!itemsRaw) return [];
+  try {
+    // Si ya es array
+    if (Array.isArray(itemsRaw)) return itemsRaw;
+
+    // Si ya es objeto -> retornarlo (posible que sea un único item o estructura)
+    if (typeof itemsRaw === 'object') return itemsRaw;
+
+    // Si es string, intentamos múltiples estrategias
+    if (typeof itemsRaw === 'string') {
+      const s = itemsRaw.trim();
+
+      // Intento 1: parse directo
+      try {
+        return JSON.parse(s);
+      } catch (e1) {
+        // Intento 2: des-escape de comillas internas
+        try {
+          const unescaped = s.replace(/\\"/g, '"');
+          return JSON.parse(unescaped);
+        } catch (e2) {
+          // Intento 3: limpiar escapes comunes y parsear
+          try {
+            const cleaned = s
+              .replace(/\\n/g, '')
+              .replace(/\\'/g, "'")
+              .replace(/\\"/g, '"')
+              .replace(/"\\\{/g, '{')
+              .replace(/\}\""/g, '}');
+            return JSON.parse(cleaned);
+          } catch (e3) {
+            console.warn('parseMetadataItems: no se pudo parsear items (intentos), devolviendo []', e3);
+            return [];
+          }
+        }
+      }
+    }
+
+    return [];
+  } catch (err) {
+    console.error('parseMetadataItems error', err);
+    return [];
+  }
+}
+
+// Extrae metadata revisando varias rutas y tratando strings JSON
+function getIzipayMetadata(answer, reqBody) {
+  if (!answer && !reqBody) return {};
+
+  // 1) transactions[0].metadata
+  try {
+    const tx = answer && Array.isArray(answer.transactions) ? answer.transactions[0] : null;
+    if (tx && tx.metadata) {
+      if (typeof tx.metadata === 'string') {
+        try { return JSON.parse(tx.metadata); } catch (e) { return tx.metadata; }
+      }
+      return tx.metadata;
+    }
+  } catch (e) { /* ignore */ }
+
+  // 2) orderDetails.metadata
+  try {
+    if (answer && answer.orderDetails && answer.orderDetails.metadata) {
+      if (typeof answer.orderDetails.metadata === 'string') {
+        try { return JSON.parse(answer.orderDetails.metadata); } catch (e) { return answer.orderDetails.metadata; }
+      }
+      return answer.orderDetails.metadata;
+    }
+  } catch (e) {}
+
+  // 3) top-level answer.metadata
+  if (answer && answer.metadata) {
+    if (typeof answer.metadata === 'string') {
+      try { return JSON.parse(answer.metadata); } catch (e) { return answer.metadata; }
+    }
+    return answer.metadata;
+  }
+
+  // 4) fallback: req.body['kr-hash-metadata'] o req.body.metadata (cuando IziPay envía)
+  try {
+    if (reqBody && (reqBody['kr-hash-metadata'] || reqBody.metadata)) {
+      const raw = reqBody['kr-hash-metadata'] || reqBody.metadata;
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch (e) {
+          try { return JSON.parse(raw.replace(/\\"/g, '"')); } catch (e2) { return raw; }
+        }
+      }
+      return raw;
+    }
+  } catch (e) {}
+
+  return {};
 }
 
 /* ============================
@@ -149,7 +212,8 @@ router.post("/webhook", async (req, res) => {
     const data = JSON.parse(krAnswerRaw);
     console.log("🔥🔥 WEBHOOK COMPLETO:", JSON.stringify(data, null, 2));
 
-    const metadata = extractMetadataFromAnswer(data) || {};
+    // Obtener metadata robusta
+    const metadata = getIzipayMetadata(data, req.body) || {};
     console.log("🔥 METADATA (extraída):", JSON.stringify(metadata, null, 2));
 
     const customer = data.customer?.billingDetails || {};
@@ -159,17 +223,16 @@ router.post("/webhook", async (req, res) => {
     // parse items dentro de metadata (si viene string)
     let productos = [];
     if (metadata.items) {
-      try {
-        productos = typeof metadata.items === 'string' ? JSON.parse(metadata.items) : metadata.items;
-      } catch (e) {
-        console.warn('No se pudo parsear metadata.items, usando raw:', e);
-        productos = metadata.items;
-      }
+      productos = parseMetadataItems(metadata.items);
     }
+    if ((!productos || productos.length === 0) && (req.body.items || req.body.item)) {
+      productos = parseMetadataItems(req.body.items || req.body.item);
+    }
+    console.log("📦 ITEMS PARSEADOS (webhook):", productos);
 
     // Determinar orderId de aplicación y método de envío (prioridad: metadata -> body -> trans.metadata -> generar)
     const appOrderId = metadata.orderId || req.body.orderId || (transaction && transaction.metadata && transaction.metadata.orderId) || generateServerOrderId();
-    const metodoEnvio = req.body.metodoEnvio || metadata.metodoEnvio || (transaction && transaction.metadata && transaction.metadata.metodoEnvio) || null;
+    const metodoEnvio = req.body.metodoEnvio || metadata.metodoEnvio || (transaction && transaction.metadata && transaction.metadata.metodoEnvio) || metadata.shippingMethod || null;
 
     // Determinar ubicación (intenta metadata primero)
     const departamento = metadata.department || metadata.departamento || customer.state || (data.customer?.shippingDetails?.state) || null;
@@ -213,7 +276,7 @@ router.post("/webhook", async (req, res) => {
         provincia: provincia,
         distrito: distrito || "",
         direccion: customer.address,
-        referencia: "",
+        referencia: metadata.referencia || req.body.referencia || "",
         metodoEnvio: metodoEnvio,
         estado: (data.orderStatus || '').toLowerCase(),
         subtotal: (orderDetails.orderTotalAmount || 0) / 100,
@@ -231,17 +294,36 @@ router.post("/webhook", async (req, res) => {
       console.log("✅ ORDEN GUARDADA:", nuevaOrden.id, "orderId(app)=", appOrderId);
     }
 
-    console.log("📦 ITEMS RECIBIDOS EN METADATA:", productos);
-
+    // Guardar items incluyendo imagen y color si vienen en metadata
     if (Array.isArray(productos) && productos.length > 0) {
       for (const item of productos) {
-        await OrdenItem.create({
-          ordenId: nuevaOrden.id,
-          productoId: item.productoId,
-          cantidad: item.cantidad,
-          precio: item.precio,
-          talla: item.talla || null
-        });
+        try {
+          await OrdenItem.create({
+            ordenId: nuevaOrden.id,
+            productoId: item.productoId || item.id,
+            cantidad: item.cantidad || 1,
+            precio: item.precio || item.price || 0,
+            talla: item.talla || null,
+            nombreProducto: item.nombreProducto || item.nombre || null,
+            imagen: item.imagen || item.image || null,
+            color: item.color || null
+          });
+        } catch (e) {
+          console.warn('Error guardando OrdenItem (webhook):', e.message, item);
+          // Intentar guardar sin imagen/color si falla por columnas inexistentes
+          try {
+            await OrdenItem.create({
+              ordenId: nuevaOrden.id,
+              productoId: item.productoId || item.id,
+              cantidad: item.cantidad || 1,
+              precio: item.precio || item.price || 0,
+              talla: item.talla || null,
+              nombreProducto: item.nombreProducto || item.nombre || null
+            });
+          } catch (e2) {
+            console.error('Segundo intento falló al guardar OrdenItem:', e2);
+          }
+        }
       }
       console.log("🛒 ITEMS GUARDADOS:", productos.length);
     } else {
@@ -323,22 +405,14 @@ router.post("/pago-exitoso", async (req, res) => {
     const answer = JSON.parse(raw);
     console.log("📌 IZIPAY PARSED:", answer);
 
-    const metadata = extractMetadataFromAnswer(answer) || {};
-    console.log("Metadata extraída en pago-exitoso:", metadata);
+    const metadata = getIzipayMetadata(answer, req.body) || {};
+    console.log("Metadata extraída en pago-exitoso:", JSON.stringify(metadata, null, 2));
 
     const usuarioId = metadata.usuarioId || req.query.usuarioId || null;
     let items = [];
-    if (metadata.items) {
-      try {
-        items = typeof metadata.items === 'string' ? JSON.parse(metadata.items) : metadata.items;
-      } catch (e) {
-        console.warn("No se pudo parsear metadata.items:", e);
-        items = metadata.items;
-      }
-    }
-
-    console.log("Usuario ID:", usuarioId);
-    console.log("Items recibidos:", items);
+    if (metadata.items) items = parseMetadataItems(metadata.items);
+    if ((!items || items.length === 0) && (req.body.items || req.body.item)) items = parseMetadataItems(req.body.items || req.body.item);
+    console.log("Items parseados (pago-exitoso):", items);
 
     const transaction = answer.transactions?.[0];
     if (!transaction) {
@@ -351,7 +425,7 @@ router.post("/pago-exitoso", async (req, res) => {
 
     // Priorizar metadata.orderId o req.body.orderId, guardar metodoEnvio si viene
     const appOrderId = metadata.orderId || req.body.orderId || (transaction && transaction.metadata && transaction.metadata.orderId) || generateServerOrderId();
-    const metodoEnvio = req.body.metodoEnvio || metadata.metodoEnvio || (transaction && transaction.metadata && transaction.metadata.metodoEnvio) || null;
+    const metodoEnvio = req.body.metodoEnvio || metadata.metodoEnvio || (transaction && transaction.metadata && transaction.metadata.metodoEnvio) || metadata.shippingMethod || null;
 
     const departamento = metadata.department || metadata.departamento || customer.state || (answer.customer?.shippingDetails?.state) || null;
     const provincia = metadata.state || metadata.provincia || customer.city || (answer.customer?.shippingDetails?.city) || null;
@@ -394,7 +468,7 @@ router.post("/pago-exitoso", async (req, res) => {
         provincia: provincia,
         distrito: distrito || "",
         direccion: customer.address,
-        referencia: "",
+        referencia: metadata.referencia || req.body.referencia || "",
 
         metodoEnvio: metodoEnvio,
 
@@ -408,16 +482,35 @@ router.post("/pago-exitoso", async (req, res) => {
       console.log("✅ ORDEN GUARDADA ID:", nuevaOrden.id, "orderId(app)=", appOrderId);
     }
 
-    // Guardar items
+    // Guardar items incluyendo imagen y color si vienen
     if (Array.isArray(items) && items.length > 0) {
       for (const item of items) {
-        await OrdenItem.create({
-          ordenId: nuevaOrden.id,
-          productoId: item.productoId,
-          cantidad: item.cantidad,
-          precio: item.precio,
-          talla: item.talla || null,
-        });
+        try {
+          await OrdenItem.create({
+            ordenId: nuevaOrden.id,
+            productoId: item.productoId || item.id,
+            cantidad: item.cantidad || 1,
+            precio: item.precio || item.price || 0,
+            talla: item.talla || null,
+            nombreProducto: item.nombreProducto || item.nombre || null,
+            imagen: item.imagen || item.image || null,
+            color: item.color || null
+          });
+        } catch (e) {
+          console.warn('Error guardando OrdenItem (pago-exitoso):', e.message, item);
+          try {
+            await OrdenItem.create({
+              ordenId: nuevaOrden.id,
+              productoId: item.productoId || item.id,
+              cantidad: item.cantidad || 1,
+              precio: item.precio || item.price || 0,
+              talla: item.talla || null,
+              nombreProducto: item.nombreProducto || item.nombre || null
+            });
+          } catch (e2) {
+            console.error('Segundo intento falló al guardar OrdenItem (pago-exitoso):', e2);
+          }
+        }
       }
     }
 
@@ -447,7 +540,7 @@ router.post("/pago-exitoso", async (req, res) => {
 <html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body>
   <script>
     try {
-      localStorage.setItem('pago_result', JSON.stringify({ status: 'success', orderId: '${appOrderId}', ordenDbId: ${nuevaOrden.id} }));
+      localStorage.setItem('pago_result', JSON.stringify({ status: 'success', orderId: '${appOrderId}', ordenDbId: ${nuevaOrden.id} })); 
     } catch(e) {}
     window.location.href = '${FRONTEND_URL + profilePath}';
   </script>
