@@ -54,7 +54,7 @@ app.use('/ordenes', require('./routes/orden'));
 app.use('/orden-items', require('./routes/ordenItem'));
 app.use('/reclamos', require('./routes/reclamo'));
 app.use('/api/izipay', require('./routes/izipay'));
-
+app.use('/', require('./routes/adminAnalytics'));
 // Puerto
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => console.log(`Servidor corriendo en http://localhost:${PORT}`));
