@@ -5,7 +5,6 @@ const db = require('./models');
 require('dotenv').config();
 const path = require('path');
 const izipayRouter = require('./routes/izipay');
-const auth = require('./middlewares/auth');
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
@@ -45,20 +44,17 @@ db.sequelize.sync()
   .then(() => console.log('Conectado y sincronizado con la base de datos'))
   .catch(err => console.error('Error DB:', err));
 
-// ✅ RUTAS PÚBLICAS (sin autenticación)
-app.use('/usuarios', require('./routes/usuarios')); // Login/Registro aquí
-app.use('/productos', require('./routes/producto')); // Listar productos es público
-app.use('/categorias', require('./routes/categoria')); // Listar categorías es público
-app.use('/api/izipay', require('./routes/izipay')); // Webhook de Izipay debe ser público
-
-// 🔐 RUTAS PROTEGIDAS (requieren autenticación)
-app.use('/carrito', auth, require('./routes/carrito'));
-app.use('/carritoitem', auth, require('./routes/carritoitem')); 
-app.use('/ordenes', auth, require('./routes/orden'));
-app.use('/orden-items', auth, require('./routes/ordenItem'));
-app.use('/reclamos', auth, require('./routes/reclamo'));
-app.use('/', require('./routes/adminAnalytics')); // Revisar si debe ser protegida
-
+// Rutas
+app.use('/usuarios', require('./routes/usuarios'));
+app.use('/productos', require('./routes/producto'));
+app.use('/categorias', require('./routes/categoria'));
+app.use('/carrito', require('./routes/carrito'));
+app.use('/carritoitem', require('./routes/carritoitem')); 
+app.use('/ordenes', require('./routes/orden'));
+app.use('/orden-items', require('./routes/ordenItem'));
+app.use('/reclamos', require('./routes/reclamo'));
+app.use('/api/izipay', require('./routes/izipay'));
+app.use('/', require('./routes/adminAnalytics'));
 // Puerto
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => console.log(`Servidor corriendo en http://localhost:${PORT}`));

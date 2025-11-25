@@ -1,20 +1,15 @@
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-require('dotenv').config();
 const { Orden, OrdenItem, Carrito, CarritoItem } = require('../models');
 const router = express.Router();
 
 /* ============================
-   🔐 CREDENCIALES (desde .env)
+   🔐 CREDENCIALES TEST
    ============================ */
-const USER = process.env.IZIPAY_USER;
-const PASS = process.env.IZIPAY_PASS;
-const HMAC_KEY = process.env.IZIPAY_HMAC;
-
-if (!USER || !PASS || !HMAC_KEY) {
-  console.error("❌ FALTA CONFIGURAR: IZIPAY_USER, IZIPAY_PASS, IZIPAY_HMAC en .env");
-}
+const USER = "84426447";
+const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
+const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
 
 /* ============================
    Helpers robustos para metadata/items
@@ -205,7 +200,7 @@ router.post("/webhook", async (req, res) => {
     const receivedHash = req.body["kr-hash"];
 
     const calculatedHash = crypto
-      .createHmac("sha256", HMAC_KEY)
+      .createHmac("sha256", HMAC_TEST)
       .update(krAnswerRaw, "utf8")
       .digest("hex");
 
