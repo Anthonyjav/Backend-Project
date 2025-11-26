@@ -1,15 +1,47 @@
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-const { Orden, OrdenItem, Carrito, CarritoItem } = require('../models');
+require('dotenv').config();
+const { Orden, OrdenItem, Producto } = require('../models');
+const { body, validationResult } = require('express-validator');
+const auth = require('../middlewares/auth');
 const router = express.Router();
 
 /* ============================
-   🔐 CREDENCIALES TEST
+   🔐 CREDENCIALES (desde .env)
    ============================ */
-const USER = "84426447";
-const PASS = "testpassword_kvARN8IKqaHBiXcz6WDpYhmqNWhWWLI5pHkH8ejFNLSfn";
-const HMAC_TEST = "RchKwjeyINw0fOWVikl0jrYiAevWsP0KRU535oYgIXNbx";
+const USER = process.env.IZIPAY_USER;
+const PASS = process.env.IZIPAY_PASS;
+const HMAC_KEY = process.env.IZIPAY_HMAC;
+
+if (!USER || !PASS || !HMAC_KEY) {
+  console.error("❌ FALTA CONFIGURAR: IZIPAY_USER, IZIPAY_PASS, IZIPAY_HMAC en .env");
+}
+
+/* ============================
+   ✅ VALIDADORES
+   ============================ */
+const validarFormToken = [
+  body('amount').isFloat({ min: 0.01 }).withMessage('Monto debe ser mayor a 0'),
+  body('currency').isLength({ min: 3, max: 3 }).withMessage('Divisa debe ser de 3 caracteres'),
+  body('orderId').notEmpty().withMessage('orderId es requerido'),
+  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
+  body('firstName').trim().isLength({ min: 2, max: 50 }).withMessage('Nombre inválido'),
+  body('lastName').trim().isLength({ min: 2, max: 50 }).withMessage('Apellido inválido'),
+  body('address').notEmpty().withMessage('Dirección es requerida'),
+  body('country').notEmpty().withMessage('País es requerido')
+];
+
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Datos inválidos',
+      details: errors.array().map(e => ({ field: e.param, message: e.msg }))
+    });
+  }
+  next();
+};
 
 /* ============================
    Helpers robustos para metadata/items
